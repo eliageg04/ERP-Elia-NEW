@@ -7,6 +7,7 @@
  * Login danach: admin@elia-erp.de / admin1234
  */
 import bcrypt from "bcryptjs";
+import type { Customer, Product, Supplier } from "@prisma/client";
 import { db } from "../src/server/db";
 import { nextNumber } from "../src/server/numbering";
 import { createInboundShipment, postGoodsReceipt } from "../src/server/services/purchasing";
@@ -115,7 +116,7 @@ async function main() {
     { name: "GameStore Süd GmbH", city: "München", currency: "EUR", terms: "Sofort" },
     { name: "Anime & Cards Import", city: "Düsseldorf", currency: "EUR", terms: "Vorkasse" },
   ];
-  const suppliers = [];
+  const suppliers: Supplier[] = [];
   for (const s of supplierData) {
     suppliers.push(
       await db.supplier.create({
@@ -142,7 +143,7 @@ async function main() {
     ["Anna Klein", "Klein Kartenladen"], ["Felix Wolf", null], ["Marie Neumann", null],
     ["Lukas Schwarz", "Schwarz TCG"], ["Sophie Zimmermann", null], ["Paul Braun", "Braun Games GmbH"],
   ] as const;
-  const customers = [];
+  const customers: Customer[] = [];
   for (const [name, company] of customerNames) {
     customers.push(
       await db.customer.create({
@@ -192,7 +193,7 @@ async function main() {
     { name: "Ultra Pro Toploader 3x4 (25er Pack)", type: "Zubehör", set: "Zubehör", lang: "EN", base: "PACK", listCents: 450, caseFactor: 40 },
     { name: "Pokémon Heartgold Tin Mew", type: "Tin", set: "Klassik", lang: "EN", base: "BOX", listCents: 3900, caseFactor: 12 },
   ];
-  const products = [];
+  const products: Product[] = [];
   const unitByCode = new Map([["PIECE", piece], ["BOX", box], ["DISPLAY", display], ["CASE", casE]]);
   const packUnit = await db.unit.findUniqueOrThrow({ where: { code: "PACK" } });
   unitByCode.set("PACK", packUnit);
