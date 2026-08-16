@@ -1,0 +1,709 @@
+// ============================================================
+// ELIA ERP – Datenmodell
+// ------------------------------------------------------------
+// Konventionen:
+// - Alle Geldbeträge sind Integer-Cents (niemals Float).
+//   Felder mit Suffix `Cents` = Originalwährung, `EurCents` = in EUR
+//   umgerechnet mit dem eingefrorenen Kurs `fxRate` (EUR pro 1 Einheit
+//   Fremdwährung; bei EUR ist fxRate = 1.0).
+// - Alle Mengen sind Integer in der Basiseinheit des Produkts.
+//   Erfasste Einheiten (Case/Display/...) werden beim Speichern mit dem
+//   eingefrorenen Faktor `unitFactor` in Basiseinheiten umgerechnet.
+// - SQLite unterstützt keine Enums: Status-/Typfelder sind Strings,
+//   die gültigen Werte stehen in src/lib/constants.ts und werden
+//   serverseitig mit Zod validiert.
+// - Geschäftsdaten werden nie hart gelöscht: Soft-Delete über
+//   `active`/`cancelledAt`/Status "CANCELLED"; Relationen sind Restrict.
+// ============================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ---------- Auth & Benutzer ----------
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  name         String
+  passwordHash String
+  role         String   @default("STAFF") // ADMIN | STAFF | READONLY
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  sessions      Session[]
+  auditLogs     AuditLog[]
+  notes         Note[]
+  goodsReceipts GoodsReceipt[]
+  importBatches ImportBatch[]
+}
+
+model Session {
+  id        String   @id // Zufallstoken (Hash wird als ID gespeichert)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+// ---------- Stammdaten ----------
+
+model Supplier {
+  id             String   @id @default(cuid())
+  code           String   @unique // z.B. SUP-0001
+  name           String
+  contactName    String?
+  email          String?
+  phone          String?
+  website        String?
+  street         String?
+  zip            String?
+  city           String?
+  country        String?  @default("DE")
+  currency       String   @default("EUR") // Standardwährung des Lieferanten
+  paymentTerms   String? // z.B. "Vorkasse", "30 Tage netto"
+  customerNumber String? // unsere Kundennummer beim Großhändler
+  active         Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  purchaseOrders  PurchaseOrder[]
+  productMappings SupplierProductMapping[]
+  invoices        Invoice[]
+
+  @@index([name])
+}
+
+model Customer {
+  id              String   @id @default(cuid())
+  code            String   @unique // z.B. KND-0001
+  name            String
+  company         String?
+  email           String?
+  phone           String?
+  billingStreet   String?
+  billingZip      String?
+  billingCity     String?
+  billingCountry  String?  @default("DE")
+  shippingStreet  String?
+  shippingZip     String?
+  shippingCity    String?
+  shippingCountry String?  @default("DE")
+  active          Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  orders   CustomerOrder[]
+  invoices Invoice[]
+
+  @@index([name])
+}
+
+// ---------- Einheiten & Produkte ----------
+
+model Unit {
+  id        String  @id @default(cuid())
+  code      String  @unique // PIECE, BOX, CASE, DISPLAY, BUNDLE, PACK, CARTON, ...
+  name      String // "Stück", "Box", "Case", ...
+  isSystem  Boolean @default(false) // Systemeinheiten sind nicht löschbar
+  sortOrder Int     @default(0)
+
+  productsAsBase  Product[]                @relation("BaseUnit")
+  conversions     UnitConversion[]
+  poLines         PurchaseOrderLine[]
+  supplierMapping SupplierProductMapping[]
+}
+
+model Product {
+  id           String   @id @default(cuid())
+  sku          String   @unique // interne SKU, z.B. PRD-0001
+  name         String
+  productType  String? // Booster Box, Display, ETB, Single, Zubehör, ...
+  setName      String? // z.B. "Scarlet & Violet 151"
+  language     String?  @default("EN") // EN, DE, JP, ...
+  edition      String?
+  ean          String?
+  manufacturer String? // z.B. The Pokémon Company
+  baseUnitId   String
+  baseUnit     Unit     @relation("BaseUnit", fields: [baseUnitId], references: [id])
+  listPriceCents Int? // aktueller Ziel-Verkaufspreis pro Basiseinheit (EUR)
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  conversions      UnitConversion[]
+  supplierMappings SupplierProductMapping[]
+  poLines          PurchaseOrderLine[]
+  orderLines       CustomerOrderLine[]
+  transactions     InventoryTransaction[]
+  lots             PurchaseLot[]
+  invoiceLines     InvoiceLine[]
+
+  @@index([name])
+  @@index([ean])
+  @@index([setName])
+}
+
+// 1 <Einheit> = factor × Basiseinheit des Produkts, z.B. 1 CASE = 6 Displays
+model UnitConversion {
+  id        String  @id @default(cuid())
+  productId String
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  unitId    String
+  unit      Unit    @relation(fields: [unitId], references: [id])
+  factor    Int // Anzahl Basiseinheiten pro 1 dieser Einheit
+
+  @@unique([productId, unitId])
+}
+
+// Lieferantenspezifische Produktnamen/-nummern → internes Produkt.
+// Verbessert die automatische Erkennung beim Import.
+model SupplierProductMapping {
+  id            String   @id @default(cuid())
+  supplierId    String
+  supplier      Supplier @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+  productId     String
+  product       Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  supplierSku   String? // Artikelnummer des Lieferanten
+  supplierName  String // Produktbezeichnung des Lieferanten
+  defaultUnitId String?
+  defaultUnit   Unit?    @relation(fields: [defaultUnitId], references: [id])
+  unitFactor    Int? // gelernte Umrechnung für diesen Lieferanten
+  lastPriceCents Int?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([supplierId, supplierName])
+  @@index([supplierId, supplierSku])
+}
+
+// ---------- Einkauf ----------
+
+model PurchaseOrder {
+  id                  String    @id @default(cuid())
+  orderNumber         String    @unique // PO-0001
+  supplierId          String
+  supplier            Supplier  @relation(fields: [supplierId], references: [id])
+  supplierOrderNumber String? // Bestellnummer des Lieferanten
+  status              String    @default("DRAFT") // DRAFT|ORDERED|CONFIRMED|PARTIALLY_SHIPPED|SHIPPED|PARTIALLY_RECEIVED|RECEIVED|COMPLETED|CANCELLED
+  statusOverridden    Boolean   @default(false) // Status manuell gesetzt, obwohl Zahlen abweichen
+  overrideReason      String?
+  orderedAt           DateTime?
+  expectedAt          DateTime?
+  currency            String    @default("EUR")
+  fxRate              Float     @default(1.0) // EUR pro 1 Einheit Währung, eingefroren
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+  cancelledAt         DateTime?
+
+  lines         PurchaseOrderLine[]
+  shipments     InboundShipment[]
+  goodsReceipts GoodsReceipt[]
+  invoices      Invoice[]
+  costs         Cost[]
+
+  @@index([supplierId])
+  @@index([status])
+  @@index([orderedAt])
+}
+
+model PurchaseOrderLine {
+  id              String        @id @default(cuid())
+  purchaseOrderId String
+  purchaseOrder   PurchaseOrder @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
+  productId       String
+  product         Product       @relation(fields: [productId], references: [id])
+  position        Int           @default(0)
+
+  // Erfassung in beliebiger Einheit, eingefroren umgerechnet in Basiseinheiten:
+  enteredQty     Int // z.B. 12 (Cases)
+  enteredUnitId  String
+  enteredUnit    Unit   @relation(fields: [enteredUnitId], references: [id])
+  unitFactor     Int    @default(1) // 1 Einheit = unitFactor Basiseinheiten (eingefroren)
+  qtyOrdered     Int // = enteredQty × unitFactor (Basiseinheiten)
+  qtyConfirmed   Int? // vom Lieferanten bestätigte Menge (Basiseinheiten)
+
+  unitPriceCents Int // Preis pro ERFASSTER Einheit in PO-Währung
+  discountCents  Int    @default(0) // Rabatt auf die Zeile
+  lineTotalCents Int // enteredQty × unitPriceCents − discount
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  shipmentItems InboundShipmentItem[]
+  receiptItems  GoodsReceiptItem[]
+  lots          PurchaseLot[]
+  invoiceLines  InvoiceLine[]
+
+  @@index([purchaseOrderId])
+  @@index([productId])
+}
+
+// ---------- Logistik (eingehend) ----------
+
+model InboundShipment {
+  id               String        @id @default(cuid())
+  shipmentNumber   String        @unique // WES-0001 (Warenein-Sendung)
+  purchaseOrderId  String
+  purchaseOrder    PurchaseOrder @relation(fields: [purchaseOrderId], references: [id])
+  status           String        @default("ANNOUNCED") // ANNOUNCED|IN_TRANSIT|DELAYED|PARTIALLY_ARRIVED|ARRIVED|CANCELLED
+  carrier          String? // UPS, DHL, DPD, GLS, FedEx, OTHER
+  trackingNumber   String?
+  packageCount     Int?
+  shippedAt        DateTime?
+  estimatedArrival DateTime?
+  arrivedAt        DateTime?
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+
+  items          InboundShipmentItem[]
+  goodsReceipts  GoodsReceipt[]
+  trackingEvents TrackingEvent[]
+
+  @@index([purchaseOrderId])
+  @@index([trackingNumber])
+  @@index([status])
+}
+
+model InboundShipmentItem {
+  id         String            @id @default(cuid())
+  shipmentId String
+  shipment   InboundShipment   @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
+  poLineId   String
+  poLine     PurchaseOrderLine @relation(fields: [poLineId], references: [id])
+  qty        Int // versendete Menge in Basiseinheiten
+
+  @@index([shipmentId])
+  @@index([poLineId])
+}
+
+// ---------- Wareneingang ----------
+
+model GoodsReceipt {
+  id              String           @id @default(cuid())
+  receiptNumber   String           @unique // WE-0001
+  purchaseOrderId String
+  purchaseOrder   PurchaseOrder    @relation(fields: [purchaseOrderId], references: [id])
+  shipmentId      String?
+  shipment        InboundShipment? @relation(fields: [shipmentId], references: [id])
+  receivedAt      DateTime         @default(now())
+  receivedById    String?
+  receivedBy      User?            @relation(fields: [receivedById], references: [id])
+  packageCount    Int?
+  createdAt       DateTime         @default(now())
+
+  items GoodsReceiptItem[]
+
+  @@index([purchaseOrderId])
+}
+
+model GoodsReceiptItem {
+  id         String            @id @default(cuid())
+  receiptId  String
+  receipt    GoodsReceipt      @relation(fields: [receiptId], references: [id], onDelete: Cascade)
+  poLineId   String
+  poLine     PurchaseOrderLine @relation(fields: [poLineId], references: [id])
+  qtyReceived Int // unbeschädigt eingelagert (Basiseinheiten)
+  qtyDamaged  Int @default(0)
+  qtyMissing  Int @default(0) // gegenüber Lieferschein fehlend
+  condition   String? // Freitext-Zustand
+  note        String?
+
+  lots PurchaseLot[]
+
+  @@index([receiptId])
+  @@index([poLineId])
+}
+
+// ---------- Bestand ----------
+
+// Charge aus einem Wareneingang – Quelle für FIFO-Kostenzuordnung.
+model PurchaseLot {
+  id                  String             @id @default(cuid())
+  productId           String
+  product             Product            @relation(fields: [productId], references: [id])
+  poLineId            String?
+  poLine              PurchaseOrderLine? @relation(fields: [poLineId], references: [id])
+  receiptItemId       String?
+  receiptItem         GoodsReceiptItem?  @relation(fields: [receiptItemId], references: [id])
+  qtyReceived         Int
+  qtyRemaining        Int // wird bei FIFO-Verbrauch reduziert
+  unitCostEurCents    Int // reiner Warenpreis pro Basiseinheit (EUR)
+  landedUnitCostEurCents Int // inkl. anteiliger Versand-/Zoll-/Nebenkosten (EUR)
+  receivedAt          DateTime @default(now())
+
+  consumptions LotConsumption[]
+
+  @@index([productId, receivedAt])
+}
+
+// Verknüpft FIFO-Verbrauch: welcher Verkauf hat welche Charge verbraucht.
+model LotConsumption {
+  id                     String                @id @default(cuid())
+  lotId                  String
+  lot                    PurchaseLot           @relation(fields: [lotId], references: [id])
+  customerShipmentItemId String?
+  shipmentItem           CustomerShipmentItem? @relation(fields: [customerShipmentItemId], references: [id])
+  inventoryTransactionId String?
+  qty                    Int
+  unitCostEurCents       Int // Landed Cost zum Verbrauchszeitpunkt (eingefroren)
+  createdAt              DateTime              @default(now())
+
+  @@index([lotId])
+  @@index([customerShipmentItemId])
+}
+
+// Bestandsbewegungs-Ledger: Bestand = Summe aller qty je Produkt.
+model InventoryTransaction {
+  id        String   @id @default(cuid())
+  productId String
+  product   Product  @relation(fields: [productId], references: [id])
+  type      String // RECEIPT|CUSTOMER_SHIPMENT|ADJUSTMENT|DAMAGE|LOSS|RETURN|CORRECTION
+  qty       Int // positiv = Zugang, negativ = Abgang (Basiseinheiten)
+  refType   String? // GOODS_RECEIPT|CUSTOMER_SHIPMENT|MANUAL|IMPORT|...
+  refId     String?
+  note      String?
+  createdById String?
+  createdAt DateTime @default(now())
+
+  @@index([productId, createdAt])
+  @@index([type])
+}
+
+// Reservierung: Ware ist physisch da, aber einem Kundenauftrag zugeordnet.
+model Allocation {
+  id                  String            @id @default(cuid())
+  productId           String
+  customerOrderLineId String
+  orderLine           CustomerOrderLine @relation(fields: [customerOrderLineId], references: [id])
+  qty                 Int
+  status              String            @default("ACTIVE") // ACTIVE|SHIPPED|RELEASED
+  createdAt           DateTime          @default(now())
+  releasedAt          DateTime?
+
+  @@index([productId, status])
+  @@index([customerOrderLineId])
+}
+
+// ---------- Verkauf ----------
+
+model CustomerOrder {
+  id           String    @id @default(cuid())
+  orderNumber  String    @unique // SO-0001
+  customerId   String
+  customer     Customer  @relation(fields: [customerId], references: [id])
+  status       String    @default("DRAFT") // DRAFT|CONFIRMED|PARTIALLY_SHIPPED|SHIPPED|PARTIALLY_DELIVERED|DELIVERED|COMPLETED|CANCELLED
+  orderedAt    DateTime  @default(now())
+  shippingFeeCents Int   @default(0) // dem Kunden berechneter Versand (EUR)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  cancelledAt  DateTime?
+
+  lines     CustomerOrderLine[]
+  shipments CustomerShipment[]
+  invoices  Invoice[]
+  costs     Cost[]
+
+  @@index([customerId])
+  @@index([status])
+  @@index([orderedAt])
+}
+
+model CustomerOrderLine {
+  id              String        @id @default(cuid())
+  customerOrderId String
+  order           CustomerOrder @relation(fields: [customerOrderId], references: [id], onDelete: Cascade)
+  productId       String
+  product         Product       @relation(fields: [productId], references: [id])
+  position        Int           @default(0)
+  qty             Int // Basiseinheiten
+  unitPriceCents  Int // Verkaufspreis pro Basiseinheit (EUR)
+  discountCents   Int           @default(0)
+  lineTotalCents  Int
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  allocations   Allocation[]
+  shipmentItems CustomerShipmentItem[]
+
+  @@index([customerOrderId])
+  @@index([productId])
+}
+
+model CustomerShipment {
+  id              String        @id @default(cuid())
+  shipmentNumber  String        @unique // VS-0001
+  customerOrderId String
+  order           CustomerOrder @relation(fields: [customerOrderId], references: [id])
+  status          String        @default("PREPARED") // PREPARED|SHIPPED|IN_TRANSIT|DELIVERED|CANCELLED
+  carrier         String?
+  trackingNumber  String?
+  shippedAt       DateTime?
+  deliveredAt     DateTime?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  items          CustomerShipmentItem[]
+  trackingEvents TrackingEvent[]
+
+  @@index([customerOrderId])
+  @@index([trackingNumber])
+  @@index([status])
+}
+
+model CustomerShipmentItem {
+  id          String            @id @default(cuid())
+  shipmentId  String
+  shipment    CustomerShipment  @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
+  orderLineId String
+  orderLine   CustomerOrderLine @relation(fields: [orderLineId], references: [id])
+  qty         Int
+  cogsEurCents Int @default(0) // eingefrorene Einkaufskosten (FIFO) für diese Position
+
+  lotConsumptions LotConsumption[]
+
+  @@index([shipmentId])
+  @@index([orderLineId])
+}
+
+// ---------- Tracking ----------
+
+model TrackingEvent {
+  id                 String            @id @default(cuid())
+  inboundShipmentId  String?
+  inboundShipment    InboundShipment?  @relation(fields: [inboundShipmentId], references: [id], onDelete: Cascade)
+  customerShipmentId String?
+  customerShipment   CustomerShipment? @relation(fields: [customerShipmentId], references: [id], onDelete: Cascade)
+  status             String // LABEL_CREATED|PICKED_UP|IN_TRANSIT|DELAYED|OUT_FOR_DELIVERY|DELIVERED|EXCEPTION
+  description        String?
+  location           String?
+  occurredAt         DateTime
+  source             String   @default("MANUAL") // MANUAL|UPS|DHL|...
+  createdAt          DateTime @default(now())
+
+  @@index([inboundShipmentId])
+  @@index([customerShipmentId])
+}
+
+// ---------- Finanzen ----------
+
+model Invoice {
+  id              String         @id @default(cuid())
+  invoiceNumber   String         @unique // RE-0001 (intern)
+  externalNumber  String? // Rechnungsnummer des Lieferanten
+  type            String // SUPPLIER (Eingangsrechnung) | CUSTOMER (Ausgangsrechnung)
+  supplierId      String?
+  supplier        Supplier?      @relation(fields: [supplierId], references: [id])
+  customerId      String?
+  customer        Customer?      @relation(fields: [customerId], references: [id])
+  purchaseOrderId String?
+  purchaseOrder   PurchaseOrder? @relation(fields: [purchaseOrderId], references: [id])
+  customerOrderId String?
+  customerOrder   CustomerOrder? @relation(fields: [customerOrderId], references: [id])
+  status          String         @default("OPEN") // OPEN|PARTIALLY_PAID|PAID|CANCELLED
+  issuedAt        DateTime       @default(now())
+  dueAt           DateTime?
+  currency        String         @default("EUR")
+  fxRate          Float          @default(1.0)
+  netCents        Int            @default(0)
+  taxCents        Int            @default(0)
+  totalCents      Int // brutto, in Originalwährung
+  totalEurCents   Int // brutto in EUR (eingefrorener Kurs)
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  lines    InvoiceLine[]
+  payments Payment[]
+  costs    Cost[]
+
+  @@index([type, status])
+  @@index([supplierId])
+  @@index([customerId])
+  @@index([externalNumber])
+}
+
+model InvoiceLine {
+  id          String             @id @default(cuid())
+  invoiceId   String
+  invoice     Invoice            @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  productId   String?
+  product     Product?           @relation(fields: [productId], references: [id])
+  poLineId    String?
+  poLine      PurchaseOrderLine? @relation(fields: [poLineId], references: [id])
+  description String
+  qty         Int                @default(1)
+  unitPriceCents Int
+  totalCents  Int
+
+  @@index([invoiceId])
+}
+
+model Payment {
+  id            String   @id @default(cuid())
+  invoiceId     String?
+  invoice       Invoice? @relation(fields: [invoiceId], references: [id])
+  direction     String // OUTGOING (an Lieferant) | INCOMING (von Kunde)
+  amountCents   Int // Originalwährung
+  currency      String   @default("EUR")
+  fxRate        Float    @default(1.0)
+  amountEurCents Int
+  paidAt        DateTime @default(now())
+  method        String? // Überweisung, PayPal, Bar, ...
+  reference     String?
+  note          String?
+  createdAt     DateTime @default(now())
+
+  @@index([invoiceId])
+  @@index([paidAt])
+}
+
+// Nebenkosten (Versand, Zoll, Gebühren) – werden auf Bestellzeilen verteilt.
+model Cost {
+  id              String         @id @default(cuid())
+  type            String // SHIPPING|CUSTOMS|FEES|OTHER
+  description     String?
+  amountCents     Int
+  currency        String         @default("EUR")
+  fxRate          Float          @default(1.0)
+  amountEurCents  Int
+  allocationMethod String        @default("BY_VALUE") // BY_VALUE|BY_QUANTITY|MANUAL
+  purchaseOrderId String?
+  purchaseOrder   PurchaseOrder? @relation(fields: [purchaseOrderId], references: [id])
+  customerOrderId String?
+  customerOrder   CustomerOrder? @relation(fields: [customerOrderId], references: [id])
+  invoiceId       String?
+  invoice         Invoice?       @relation(fields: [invoiceId], references: [id])
+  incurredAt      DateTime       @default(now())
+  createdAt       DateTime       @default(now())
+
+  @@index([purchaseOrderId])
+  @@index([customerOrderId])
+}
+
+// ---------- Notizen, Audit, Events ----------
+
+model Note {
+  id         String   @id @default(cuid())
+  entityType String // PURCHASE_ORDER|CUSTOMER_ORDER|PRODUCT|CUSTOMER|SUPPLIER|SHIPMENT|INVOICE|GOODS_RECEIPT|...
+  entityId   String
+  body       String
+  pinned     Boolean  @default(false)
+  authorId   String?
+  author     User?    @relation(fields: [authorId], references: [id])
+  createdAt  DateTime @default(now())
+
+  @@index([entityType, entityId])
+}
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  userId     String?
+  user       User?    @relation(fields: [userId], references: [id])
+  entityType String
+  entityId   String
+  action     String // CREATE|UPDATE|DELETE|STATUS_CHANGE|IMPORT|CORRECTION
+  changes    String? // JSON: [{field, old, new}]
+  comment    String?
+  createdAt  DateTime @default(now())
+
+  @@index([entityType, entityId])
+  @@index([createdAt])
+}
+
+// Geschäftsereignisse (Warenfluss-Historie)
+model ActivityEvent {
+  id         String   @id @default(cuid())
+  type       String // PURCHASE_ORDER_CREATED|SHIPMENT_SENT|GOODS_RECEIVED|INVENTORY_ALLOCATED|...
+  entityType String
+  entityId   String
+  summary    String // menschenlesbar, z.B. "40 × Produkt X eingelagert (WE-0012)"
+  meta       String? // JSON
+  userId     String?
+  createdAt  DateTime @default(now())
+
+  @@index([entityType, entityId])
+  @@index([createdAt])
+  @@index([type])
+}
+
+// ---------- Import ----------
+
+model ImportBatch {
+  id          String    @id @default(cuid())
+  source      String // CSV|XLSX|PDF|MANUAL|LEXWARE
+  kind        String // SUPPLIER_INVOICE|PURCHASE_ORDER|PRODUCTS|CUSTOMERS|INVENTORY
+  filename    String?
+  contentHash String? // SHA-256 für Duplikaterkennung
+  status      String    @default("REVIEW") // REVIEW|COMPLETED|DISCARDED|FAILED
+  summary     String?
+  rawText     String? // Roh-Inhalt (z.B. CSV) zur Nachvollziehbarkeit
+  createdById String?
+  createdBy   User?     @relation(fields: [createdById], references: [id])
+  createdAt   DateTime  @default(now())
+  processedAt DateTime?
+
+  items ImportItem[]
+
+  @@index([contentHash])
+  @@index([status])
+}
+
+model ImportItem {
+  id               String      @id @default(cuid())
+  batchId          String
+  batch            ImportBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  rowIndex         Int         @default(0)
+  raw              String // JSON der Rohdaten
+  parsed           String? // JSON der interpretierten Felder
+  confidence       Int         @default(100) // 0–100
+  status           String      @default("PENDING") // PENDING|ACCEPTED|EDITED|DISCARDED|DUPLICATE
+  matchedProductId String?
+  resultRefType    String? // was daraus entstanden ist
+  resultRefId      String?
+  note             String?
+
+  @@index([batchId])
+  @@index([status])
+}
+
+// ---------- System ----------
+
+// Fortlaufende Belegnummern (transaktionssicher hochgezählt)
+model Counter {
+  name  String @id // z.B. "PO", "SO", "WE", "RE", "PRD", ...
+  value Int    @default(0)
+}
+
+model Setting {
+  key       String   @id
+  value     String // JSON
+  updatedAt DateTime @updatedAt
+}
+
+model IntegrationConfig {
+  id        String   @id @default(cuid())
+  provider  String   @unique // UPS|LEXWARE|DHL|...
+  enabled   Boolean  @default(false)
+  mode      String   @default("MOCK") // MOCK|LIVE
+  config    String? // JSON (Credentials serverseitig, nie im Frontend)
+  updatedAt DateTime @updatedAt
+}
+
+// Historische Wechselkurse (Referenz; Transaktionen frieren ihren Kurs ein)
+model ExchangeRate {
+  id       String   @id @default(cuid())
+  currency String // USD, GBP, ...
+  rate     Float // EUR pro 1 Einheit
+  validOn  DateTime
+
+  @@unique([currency, validOn])
+}

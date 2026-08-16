@@ -1,0 +1,59 @@
+@import "tailwindcss";
+
+/* ============================================================
+   Design-System: neutral, ruhig, professionell (Linear/Stripe).
+   Statusfarben nur als dezente Badges – keine bunten Dashboards.
+   ============================================================ */
+
+@theme {
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
+    monospace;
+
+  /* Neutrale Skala */
+  --color-surface: #ffffff;
+  --color-canvas: #f7f7f8;
+  --color-border: #e4e4e7;
+  --color-border-strong: #d4d4d8;
+  --color-ink: #18181b;
+  --color-ink-secondary: #52525b;
+  --color-ink-tertiary: #a1a1aa;
+
+  /* Akzent (zurückhaltendes Indigo) */
+  --color-accent: #4f46e5;
+  --color-accent-hover: #4338ca;
+  --color-accent-soft: #eef2ff;
+
+  /* Status (dezent) */
+  --color-ok: #16a34a;
+  --color-ok-soft: #f0fdf4;
+  --color-warn: #d97706;
+  --color-warn-soft: #fffbeb;
+  --color-danger: #dc2626;
+  --color-danger-soft: #fef2f2;
+  --color-info: #2563eb;
+  --color-info-soft: #eff6ff;
+  --color-violet: #7c3aed;
+  --color-violet-soft: #f5f3ff;
+}
+
+html {
+  @apply antialiased;
+}
+
+body {
+  @apply bg-canvas text-ink;
+  font-feature-settings: "tnum" 1, "cv03" 1;
+}
+
+/* Zahlen in Tabellen: Tabular Figures für saubere Ausrichtung */
+.tnum {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Dezente Scrollbars */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-border-strong) transparent;
+}
