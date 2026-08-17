@@ -67,6 +67,7 @@ Einheiten, Integrationen, Mappings) · Audit-Log · globale Suche.
 | `npm run test` | Tests (Geldrechnung, Warenfluss, FIFO, Integrität) |
 | `npm run typecheck` | TypeScript-Prüfung |
 | `npm run db:seed` | Testdaten neu einspielen (löscht Daten!) |
+| `npm run db:fresh` | Frischer Start für den echten Betrieb: alles löschen, nur Einheiten + Admin anlegen |
 | `npm run db:backup` | SQLite-Backup nach `backups/` (behält 30 Stände) |
 | `npm run db:push` | Schema-Änderungen anwenden |
 
