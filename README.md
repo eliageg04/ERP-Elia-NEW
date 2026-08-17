@@ -86,6 +86,28 @@ Einheiten, Integrationen, Mappings) · Audit-Log · globale Suche.
 Details: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) ·
 API: [`docs/API.md`](docs/API.md) · Konventionen: [`docs/CONVENTIONS.md`](docs/CONVENTIONS.md)
 
+## Deployment auf Vercel (feste Web-Adresse)
+
+Der Build erkennt die Datenbank automatisch: lokal SQLite, auf Vercel
+PostgreSQL. Beim Deployment wird das Schema angewendet und – falls noch kein
+Benutzer existiert – ein Admin angelegt (idempotent, verändert nie bestehende Daten).
+
+1. Auf [vercel.com](https://vercel.com) mit GitHub anmelden.
+2. **Add New → Project** → Repository `ERP-Elia-NEW` importieren (Einstellungen unverändert lassen).
+3. Im Projekt: **Storage → Create Database → Neon (Postgres)** → mit dem Projekt
+   verbinden (setzt `DATABASE_URL` automatisch).
+4. Unter **Settings → Environment Variables** ergänzen:
+   - `SESSION_SECRET` – langer Zufallswert (z. B. aus `openssl rand -hex 32`)
+   - `ADMIN_EMAIL`, `ADMIN_PASSWORD` (min. 8 Zeichen), optional `ADMIN_NAME`
+     – der Login-Account beim ersten Deployment
+5. **Deployments → Redeploy** (damit Datenbank + Variablen greifen).
+   Danach ist das ERP unter `https://<projektname>.vercel.app` erreichbar.
+
+Hinweise: Ohne `ADMIN_*`-Variablen wird `admin@elia-erp.de` / `admin1234`
+angelegt – dann sofort ändern. Datei-Uploads (Import) sind auf Vercel auf
+~4,5 MB begrenzt. Backups übernimmt Neon (Point-in-Time-Restore);
+`npm run db:backup` betrifft nur die lokale SQLite-Datei.
+
 ## Integrationen
 
 - **UPS-Tracking:** Carrier-Abstraktion mit Mock-Modus (sofort nutzbar) und
