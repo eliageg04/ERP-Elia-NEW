@@ -4,6 +4,30 @@ import { ActionForm, Field, Input, Select, SubmitButton } from "@/components/for
 import { updateIntegrationAction } from "@/server/actions/settings";
 import { syncLexwareAction } from "@/server/actions/lexware";
 
+export function AiIntegrationForm({ enabled, hasApiKey }: { enabled: boolean; hasApiKey: boolean }) {
+  return (
+    <ActionForm action={updateIntegrationAction} className="flex flex-col gap-3">
+      <input type="hidden" name="provider" value="AI" />
+      <label className="flex items-center gap-2 text-sm">
+        <input type="checkbox" name="enabled" defaultChecked={enabled} />
+        KI-Rechnungserkennung aktivieren
+      </label>
+      <Field
+        label="Anthropic-API-Schlüssel"
+        hint={hasApiKey ? "Gespeichert – nur ausfüllen zum Ändern" : "Unter console.anthropic.com → API Keys erstellen"}
+      >
+        <Input type="password" name="apiKey" placeholder={hasApiKey ? "••••••••" : "sk-ant-…"} autoComplete="off" />
+      </Field>
+      <p className="text-xs text-ink-tertiary">
+        Der Schlüssel wird nur serverseitig gespeichert. Kosten: wenige Cent pro ausgelesener Rechnung.
+      </p>
+      <div>
+        <SubmitButton size="sm">Speichern</SubmitButton>
+      </div>
+    </ActionForm>
+  );
+}
+
 export function LexwareIntegrationForm({
   enabled,
   hasApiKey,

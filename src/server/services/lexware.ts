@@ -44,6 +44,35 @@ async function lexGet<T>(cfg: LexwareConfig, path: string): Promise<T> {
   return (await res.json()) as T;
 }
 
+/**
+ * Beleg-PDF in die Lexware-Belegübersicht hochladen (Richtung ERP → Lexware).
+ * Rückgabe: Lexware-Datei-ID oder Fehlertext (nicht werfend – der Upload ins
+ * ERP darf nicht daran scheitern, dass Lexware gerade nicht erreichbar ist).
+ */
+export async function uploadVoucherToLexware(
+  pdf: Buffer,
+  filename: string
+): Promise<{ ok: true; fileId: string } | { ok: false; error: string }> {
+  const cfg = await getLexwareConfig();
+  if (!cfg) return { ok: false, error: "Lexware nicht konfiguriert" };
+  try {
+    const form = new FormData();
+    form.append("file", new Blob([new Uint8Array(pdf)], { type: "application/pdf" }), filename);
+    form.append("type", "voucher");
+    const res = await fetch(cfg.baseUrl + "/files", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${cfg.apiKey}` },
+      body: form,
+    });
+    if (!res.ok) return { ok: false, error: `Lexware-Upload fehlgeschlagen (HTTP ${res.status})` };
+    const data = (await res.json()) as { id?: string };
+    if (!data.id) return { ok: false, error: "Lexware-Upload: keine Datei-ID erhalten" };
+    return { ok: true, fileId: data.id };
+  } catch {
+    return { ok: false, error: "Lexware nicht erreichbar" };
+  }
+}
+
 type VoucherListEntry = {
   id?: string;
   voucherType?: string;

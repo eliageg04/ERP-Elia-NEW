@@ -8,6 +8,7 @@ import { syncLexwareAction } from "@/server/actions/lexware";
 import { UploadForm } from "./upload-form";
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 60; // KI-Analyse von PDF-Rechnungen braucht Zeit
 export const metadata = { title: "Import" };
 
 const KIND_LABELS: Record<string, string> = {
@@ -19,7 +20,7 @@ const KIND_LABELS: Record<string, string> = {
 };
 
 export default async function ImportsPage() {
-  const [batches, suppliers, lexware] = await Promise.all([
+  const [batches, suppliers, lexware, ai] = await Promise.all([
     db.importBatch.findMany({
       include: { items: { select: { status: true } } },
       orderBy: { createdAt: "desc" },
@@ -27,7 +28,9 @@ export default async function ImportsPage() {
     }),
     db.supplier.findMany({ where: { active: true }, orderBy: { name: "asc" } }),
     db.integrationConfig.findUnique({ where: { provider: "LEXWARE" } }),
+    db.integrationConfig.findUnique({ where: { provider: "AI" } }),
   ]);
+  const aiEnabled = Boolean((ai?.enabled && ai.config && JSON.parse(ai.config)?.apiKey) || process.env.ANTHROPIC_API_KEY);
 
   return (
     <div className="flex flex-col gap-6">
@@ -43,7 +46,11 @@ export default async function ImportsPage() {
         }
       />
 
-      <UploadForm suppliers={suppliers.map((s) => ({ id: s.id, label: s.name }))} />
+      <UploadForm
+        suppliers={suppliers.map((s) => ({ id: s.id, label: s.name }))}
+        lexwareEnabled={lexware?.enabled ?? false}
+        aiEnabled={aiEnabled}
+      />
 
       {batches.length === 0 ? (
         <EmptyState

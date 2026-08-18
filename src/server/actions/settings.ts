@@ -91,6 +91,31 @@ export async function updateIntegrationAction(_prev: ActionState, formData: Form
     const user = await requireRole("ADMIN");
     const provider = str(formData, "provider");
 
+    if (provider === "AI") {
+      const enabled = formData.get("enabled") === "on";
+      const apiKey = optStr(formData, "apiKey");
+      const existing = await db.integrationConfig.findUnique({ where: { provider } });
+      const prev = existing?.config ? (JSON.parse(existing.config) as Record<string, string>) : {};
+      const merged = { apiKey: apiKey ?? prev.apiKey };
+      if (enabled && !merged.apiKey && !process.env.ANTHROPIC_API_KEY) {
+        throw new AppError("Bitte einen Anthropic-API-Schlüssel eintragen (console.anthropic.com).");
+      }
+      await db.integrationConfig.upsert({
+        where: { provider },
+        create: { provider, enabled, mode: "LIVE", config: JSON.stringify(merged) },
+        update: { enabled, config: JSON.stringify(merged) },
+      });
+      await writeAudit({
+        userId: user.id,
+        entityType: "INTEGRATION",
+        entityId: provider,
+        action: "UPDATE",
+        changes: [{ field: "enabled", old: existing?.enabled ?? null, new: enabled }],
+        comment: apiKey ? "API-Schlüssel aktualisiert" : undefined,
+      });
+      return;
+    }
+
     if (provider === "LEXWARE") {
       const enabled = formData.get("enabled") === "on";
       const apiKey = optStr(formData, "apiKey");

@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 import { db } from "@/server/db";
 import { requireUser } from "@/server/auth";
 import { PageHeader, Card, Badge } from "@/components/ui";
-import { UpsIntegrationForm, LexwareIntegrationForm } from "./integration-panels";
+import { UpsIntegrationForm, LexwareIntegrationForm, AiIntegrationForm } from "./integration-panels";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Integrationen" };
@@ -16,6 +16,8 @@ export default async function IntegrationsPage() {
   const hasCredentials = Boolean(ups?.config && JSON.parse(ups.config)?.clientId);
   const lexware = await db.integrationConfig.findUnique({ where: { provider: "LEXWARE" } });
   const lexwareHasKey = Boolean(lexware?.config && JSON.parse(lexware.config)?.apiKey);
+  const ai = await db.integrationConfig.findUnique({ where: { provider: "AI" } });
+  const aiHasKey = Boolean((ai?.config && JSON.parse(ai.config)?.apiKey) || process.env.ANTHROPIC_API_KEY);
 
   return (
     <div className="flex flex-col gap-6">
@@ -42,6 +44,23 @@ export default async function IntegrationsPage() {
           werden Client-ID/Secret aus dem UPS Developer Portal benötigt (OAuth2, Track API v1).
         </p>
         <UpsIntegrationForm enabled={ups?.enabled ?? false} mode={ups?.mode ?? "MOCK"} hasCredentials={hasCredentials} />
+      </Card>
+
+      <Card
+        title={
+          <span className="flex items-center gap-2">
+            KI-Rechnungserkennung (PDF)
+            {ai?.enabled ? <Badge tone="green">Aktiv</Badge> : <Badge>Aus</Badge>}
+          </span>
+        }
+      >
+        <p className="mb-4 text-sm text-ink-secondary">
+          Liest hochgeladene <span className="font-medium">PDF-Rechnungen</span> vollständig aus –
+          inklusive aller Artikelpositionen, Mengen und Preise. Die erkannten Positionen landen mit
+          Produktzuordnung in der Import-Inbox; aus der Übernahme entsteht die Entwurfs-Vorbestellung.
+          Benötigt einen Anthropic-API-Schlüssel (Claude).
+        </p>
+        <AiIntegrationForm enabled={ai?.enabled ?? false} hasApiKey={aiHasKey} />
       </Card>
 
       <Card

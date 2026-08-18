@@ -6,15 +6,23 @@ import { uploadImportAction } from "@/server/actions/imports";
 
 type SupplierOption = { id: string; label: string };
 
-export function UploadForm({ suppliers }: { suppliers: SupplierOption[] }) {
+export function UploadForm({
+  suppliers,
+  lexwareEnabled,
+  aiEnabled,
+}: {
+  suppliers: SupplierOption[];
+  lexwareEnabled: boolean;
+  aiEnabled: boolean;
+}) {
   return (
-    <Card title="Datei importieren">
+    <Card title="Rechnung / Datei importieren">
       <ActionForm action={uploadImportAction} className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <Field label="Datei (CSV / XLSX)" required className="lg:col-span-2">
+        <Field label="Datei (PDF / CSV / XLSX)" required className="lg:col-span-2">
           <input
             type="file"
             name="file"
-            accept=".csv,.xlsx,.xls,.txt"
+            accept=".pdf,.csv,.xlsx,.xls,.txt"
             required
             className="w-full rounded-md border border-border-strong bg-surface px-2.5 py-1.5 text-sm file:mr-3 file:rounded file:border-0 file:bg-canvas file:px-2 file:py-1 file:text-sm"
           />
@@ -34,12 +42,20 @@ export function UploadForm({ suppliers }: { suppliers: SupplierOption[] }) {
             ))}
           </Select>
         </Field>
+        {lexwareEnabled && (
+          <label className="flex items-center gap-2 text-sm sm:col-span-2 lg:col-span-4">
+            <input type="checkbox" name="sendToLexware" defaultChecked />
+            PDF-Beleg zusätzlich an Lexware übergeben (für die Buchhaltung)
+          </label>
+        )}
         <div className="sm:col-span-2 lg:col-span-4">
           <SubmitButton>Hochladen & analysieren</SubmitButton>
           <p className="mt-2 text-xs text-ink-tertiary">
-            Lexware: einfach den CSV-Export aus Lexware hochladen – Spalten wie „Artikelnummer“,
-            „Bezeichnung“, „Menge“, „Einzelpreis“ werden automatisch erkannt. Produkte werden über
-            EAN → SKU → gelernte Lieferanten-Mappings → Namensähnlichkeit zugeordnet.
+            {aiEnabled
+              ? "PDF-Rechnungen werden per KI ausgelesen (Positionen, Mengen, Preise) – die Analyse dauert ca. 15–30 Sekunden. "
+              : "Für PDF-Rechnungen wird ein KI-Schlüssel benötigt (Einstellungen → Integrationen). "}
+            CSV/XLSX: Spalten wie „Artikelnummer“, „Bezeichnung“, „Menge“, „Einzelpreis“ werden automatisch
+            erkannt. Produkte werden über EAN → SKU → gelernte Mappings → Namensähnlichkeit zugeordnet.
           </p>
         </div>
       </ActionForm>

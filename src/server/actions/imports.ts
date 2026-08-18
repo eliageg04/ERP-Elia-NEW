@@ -5,8 +5,10 @@ import { requireRole } from "../auth";
 import { AppError } from "../errors";
 import { writeAudit, writeEvent } from "../audit";
 import { nextNumber } from "../numbering";
-import { createImportBatch } from "../services/importing";
-import { learnSupplierMapping } from "../services/matching";
+import { createImportBatch, sha256 } from "../services/importing";
+import { learnSupplierMapping, matchProduct, similarity } from "../services/matching";
+import { extractInvoiceFromPdf } from "../services/pdf-extract";
+import { uploadVoucherToLexware, getLexwareConfig } from "../services/lexware";
 import { IMPORT_KINDS } from "@/lib/constants";
 import { runAction, str, optStr, optNum } from "./helpers";
 import type { ActionState } from "@/components/form";
@@ -25,14 +27,28 @@ export async function uploadImportAction(_prev: ActionState, formData: FormData)
       throw new AppError("Bitte die Art des Imports wählen.");
     }
     const name = file.name.toLowerCase();
+
+    // PDF-Rechnung: KI-Erkennung + optional Weitergabe an Lexware
+    if (name.endsWith(".pdf")) {
+      if (file.size > 4 * 1024 * 1024) {
+        throw new AppError("PDF zu groß (max. 4 MB auf Vercel). Bitte die Rechnung verkleinern.");
+      }
+      const buffer = Buffer.from(await file.arrayBuffer());
+      const batchId = await importPdfInvoice({
+        buffer,
+        filename: file.name,
+        supplierId: optStr(formData, "supplierId"),
+        sendToLexware: formData.get("sendToLexware") === "on",
+        userId: user.id,
+      });
+      return { redirect: `/imports/${batchId}` };
+    }
+
     let source: "CSV" | "XLSX";
     if (name.endsWith(".csv") || name.endsWith(".txt")) source = "CSV";
     else if (name.endsWith(".xlsx") || name.endsWith(".xls")) source = "XLSX";
     else {
-      throw new AppError(
-        "Dieses Format wird noch nicht unterstützt. Bitte CSV- oder Excel-Export verwenden – " +
-          "PDF-/OCR-Import ist als nächste Ausbaustufe vorgesehen."
-      );
+      throw new AppError("Dieses Format wird nicht unterstützt. Bitte PDF, CSV oder Excel hochladen.");
     }
     const supplierId = optStr(formData, "supplierId");
     const batch = await createImportBatch({
@@ -60,6 +76,164 @@ export async function uploadImportAction(_prev: ActionState, formData: FormData)
     });
     return { redirect: `/imports/${batch.id}` };
   });
+}
+
+/** PDF-Rechnung: KI-Extraktion → Inbox-Positionen; optional Beleg an Lexware weitergeben. */
+async function importPdfInvoice(params: {
+  buffer: Buffer;
+  filename: string;
+  supplierId: string | null;
+  sendToLexware: boolean;
+  userId: string;
+}): Promise<string> {
+  const hash = sha256(params.buffer);
+  const existing = await db.importBatch.findFirst({
+    where: { contentHash: hash, status: { not: "DISCARDED" } },
+  });
+  if (existing) {
+    throw new AppError(
+      `Diese PDF wurde bereits importiert (${existing.createdAt.toLocaleDateString("de-DE")}). Duplikat verhindert.`
+    );
+  }
+
+  const invoice = await extractInvoiceFromPdf(params.buffer);
+
+  // Lieferant: explizite Auswahl > Namenserkennung aus der Rechnung
+  let supplierId = params.supplierId;
+  let supplierNote = "";
+  if (!supplierId && invoice.supplierName) {
+    const suppliers = await db.supplier.findMany({ where: { active: true } });
+    let best: (typeof suppliers)[number] | null = null;
+    let bestScore = 0;
+    for (const s of suppliers) {
+      const score = similarity(invoice.supplierName, s.name);
+      if (score > bestScore) {
+        bestScore = score;
+        best = s;
+      }
+    }
+    if (best && bestScore >= 0.55) {
+      supplierId = best.id;
+      supplierNote = `Lieferant erkannt: ${best.name}`;
+    } else {
+      supplierNote = `Lieferant „${invoice.supplierName}" nicht im System – bitte anlegen oder beim Übernehmen wählen`;
+    }
+  }
+
+  // Duplikat auf Belegebene: gleiche Rechnungsnummer bereits importiert?
+  if (invoice.invoiceNumber) {
+    const dupe = await db.importItem.findFirst({
+      where: {
+        parsed: { contains: `"invoiceNumber":"${invoice.invoiceNumber}"` },
+        status: { not: "DISCARDED" },
+      },
+    });
+    if (dupe) {
+      throw new AppError(
+        `Eine Rechnung mit der Nummer ${invoice.invoiceNumber} wurde bereits importiert. Duplikat verhindert.`
+      );
+    }
+  }
+
+  const currency = (invoice.currency ?? "EUR").toUpperCase();
+  const toCents = (v: number | null) => (v === null ? null : Math.round(v * 100));
+
+  // Optional: Beleg an Lexware weitergeben (nicht blockierend)
+  let lexwareInfo = "";
+  if (params.sendToLexware) {
+    if (await getLexwareConfig()) {
+      const result = await uploadVoucherToLexware(params.buffer, params.filename);
+      lexwareInfo = result.ok ? " · an Lexware übergeben" : ` · Lexware: ${result.error}`;
+    } else {
+      lexwareInfo = " · Lexware nicht konfiguriert";
+    }
+  }
+
+  const batch = await db.importBatch.create({
+    data: {
+      source: "PDF",
+      kind: "SUPPLIER_INVOICE",
+      filename: params.filename,
+      contentHash: hash,
+      status: "REVIEW",
+      summary:
+        [
+          invoice.supplierName ?? "Lieferant unbekannt",
+          invoice.invoiceNumber ? `RE ${invoice.invoiceNumber}` : null,
+          invoice.invoiceDate,
+          invoice.totalGross !== null ? `${invoice.totalGross.toFixed(2).replace(".", ",")} ${currency}` : null,
+          `${invoice.items.length} Positionen (KI-Erkennung)`,
+        ]
+          .filter(Boolean)
+          .join(" · ") + lexwareInfo,
+      createdById: params.userId,
+    },
+  });
+
+  for (let i = 0; i < invoice.items.length; i++) {
+    const item = invoice.items[i];
+    const qty = Math.round(item.quantity);
+    const unitPriceCents =
+      toCents(item.unitPrice) ??
+      (item.totalPrice !== null && qty > 0 ? Math.round((item.totalPrice * 100) / qty) : null);
+    const match = await matchProduct({ name: item.description, sku: item.sku, supplierId });
+    let confidence = match.productId ? match.confidence : Math.min(match.confidence, 40);
+    if (qty <= 0) confidence = Math.min(confidence, 50);
+    if (unitPriceCents === null) confidence = Math.min(confidence, 60);
+
+    await db.importItem.create({
+      data: {
+        batchId: batch.id,
+        rowIndex: i,
+        raw: JSON.stringify({
+          Artikel: item.description,
+          "Art-Nr": item.sku ?? "–",
+          Menge: `${item.quantity}${item.unit ? " " + item.unit : ""}`,
+          Einzelpreis: item.unitPrice !== null ? item.unitPrice.toFixed(2).replace(".", ",") + " " + currency : "–",
+        }),
+        parsed: JSON.stringify({
+          productName: item.description,
+          sku: item.sku,
+          qty: String(item.quantity),
+          unit: item.unit,
+          qtyParsed: qty > 0 ? qty : null,
+          unitPriceCentsParsed: unitPriceCents,
+          totalPriceCentsParsed: toCents(item.totalPrice),
+          invoiceNumber: invoice.invoiceNumber,
+          currency,
+          matchMethod: match.method + (supplierNote ? ` · ${supplierNote}` : ""),
+          candidates: match.candidates,
+        }),
+        confidence,
+        status: "PENDING",
+        matchedProductId: match.productId,
+        note: currency !== "EUR" ? `Achtung: Rechnungswährung ${currency}` : null,
+      },
+    });
+  }
+
+  if (supplierId) {
+    await db.setting.upsert({
+      where: { key: `importSupplier:${batch.id}` },
+      create: { key: `importSupplier:${batch.id}`, value: JSON.stringify(supplierId) },
+      update: { value: JSON.stringify(supplierId) },
+    });
+  }
+  await writeAudit({
+    userId: params.userId,
+    entityType: "IMPORT_BATCH",
+    entityId: batch.id,
+    action: "IMPORT",
+    comment: `PDF ${params.filename} per KI ausgelesen (${invoice.items.length} Positionen)${lexwareInfo}`,
+  });
+  await writeEvent({
+    type: "PDF_INVOICE_IMPORTED",
+    entityType: "IMPORT_BATCH",
+    entityId: batch.id,
+    summary: `Rechnung ${invoice.invoiceNumber ?? params.filename} per KI ausgelesen (${invoice.items.length} Positionen)`,
+    userId: params.userId,
+  });
+  return batch.id;
 }
 
 /** Produktzuordnung eines Import-Items manuell setzen (System lernt Mapping). */
