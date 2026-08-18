@@ -31,7 +31,10 @@ export function UploadForm({
           <Select name="kind" defaultValue="SUPPLIER_INVOICE">
             <option value="SUPPLIER_INVOICE">Lieferantenrechnung</option>
             <option value="PURCHASE_ORDER">Bestellung</option>
-            <option value="PRODUCTS">Produkte</option>
+            <option value="PRODUCTS">Produkte (Neuanlage)</option>
+            <option value="CUSTOMERS">Kunden (Alt-Daten)</option>
+            <option value="SUPPLIERS">Lieferanten (Alt-Daten)</option>
+            <option value="OPENING_STOCK">Anfangsbestand (Menge + EK)</option>
           </Select>
         </Field>
         <Field label="Lieferant (empfohlen)" hint="Aktiviert gelernte Mappings & Entwurfs-Bestellung">
@@ -56,6 +59,9 @@ export function UploadForm({
               : "Für PDF-Rechnungen wird ein KI-Schlüssel benötigt (Einstellungen → Integrationen). "}
             CSV/XLSX: Spalten wie „Artikelnummer“, „Bezeichnung“, „Menge“, „Einzelpreis“ werden automatisch
             erkannt. Produkte werden über EAN → SKU → gelernte Mappings → Namensähnlichkeit zugeordnet.
+            Für die Alt-Datenübernahme: „Kunden“/„Lieferanten“ erwarten Spalten wie Name, Firma, E-Mail,
+            Straße, PLZ, Ort · „Anfangsbestand“ erwartet Bezeichnung, Menge und Einkaufspreis je Einheit
+            (gewichteter Durchschnitt) und bucht den Bestand direkt ein.
           </p>
         </div>
       </ActionForm>

@@ -83,6 +83,8 @@ export const IMPORT_KINDS = [
   "PURCHASE_ORDER",
   "PRODUCTS",
   "CUSTOMERS",
+  "SUPPLIERS",
+  "OPENING_STOCK",
   "INVENTORY",
 ] as const;
 

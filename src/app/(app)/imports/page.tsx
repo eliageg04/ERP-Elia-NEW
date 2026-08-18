@@ -16,6 +16,8 @@ const KIND_LABELS: Record<string, string> = {
   PURCHASE_ORDER: "Bestellung",
   PRODUCTS: "Produkte",
   CUSTOMERS: "Kunden",
+  SUPPLIERS: "Lieferanten",
+  OPENING_STOCK: "Anfangsbestand",
   INVENTORY: "Bestand",
 };
 

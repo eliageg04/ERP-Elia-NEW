@@ -57,6 +57,13 @@ const COLUMN_ALIASES: Record<string, string[]> = {
   currency: ["währung", "waehrung", "currency"],
   tax: ["steuer", "mwst", "ust", "tax", "vat"],
   discount: ["rabatt", "discount", "nachlass"],
+  // Kontakte (Kunden/Lieferanten-Import)
+  email: ["email", "e-mail", "mail", "e-mail-adresse"],
+  phone: ["telefon", "phone", "tel", "telefonnummer", "mobil"],
+  company: ["firma", "company", "firmenname", "unternehmen"],
+  street: ["straße", "strasse", "street", "adresse", "anschrift"],
+  zip: ["plz", "zip", "postleitzahl"],
+  city: ["ort", "stadt", "city"],
 };
 
 export function mapColumns(row: ParsedRow): Record<string, string> {
@@ -138,8 +145,31 @@ export async function createImportBatch(params: {
     },
   });
 
+  const contactKind = params.kind === "CUSTOMERS" || params.kind === "SUPPLIERS";
+  const newProductsExpected = params.kind === "PRODUCTS" || params.kind === "OPENING_STOCK";
+
   for (let i = 0; i < rows.length; i++) {
     const mapped = mapColumns(rows[i]);
+
+    // Kunden-/Lieferanten-Import: kein Produktmatching – nur Name zählt
+    if (contactKind) {
+      const contactName = mapped.productName || mapped.company || Object.values(rows[i])[0]?.trim() || "";
+      await db.importItem.create({
+        data: {
+          batchId: batch.id,
+          rowIndex: i,
+          raw: JSON.stringify(rows[i]),
+          parsed: JSON.stringify({
+            ...mapped,
+            matchMethod: contactName ? "Name erkannt" : "Kein Name gefunden",
+          }),
+          confidence: contactName ? 95 : 20,
+          status: "PENDING",
+        },
+      });
+      continue;
+    }
+
     const match = await matchProduct({
       name: mapped.productName,
       ean: mapped.ean,
@@ -149,9 +179,20 @@ export async function createImportBatch(params: {
     // Gesamt-Confidence: Produktmatch + Vollständigkeit der Pflichtfelder
     const qty = parseQty(mapped.qty);
     const price = parseMoneyToCents(mapped.unitPrice) ?? parseMoneyToCents(mapped.totalPrice);
-    let confidence = match.productId ? match.confidence : Math.min(match.confidence, 40);
-    if (!qty) confidence = Math.min(confidence, 50);
-    if (!price) confidence = Math.min(confidence, 60);
+    let confidence: number;
+    if (match.productId) {
+      confidence = match.confidence;
+    } else if (newProductsExpected && mapped.productName) {
+      // Produkt-/Anfangsbestand-Import: kein Treffer = Neuanlage (erwartet).
+      // Gibt es ähnliche Kandidaten, zur Sicherheit manuell prüfen lassen.
+      confidence = match.candidates.length > 0 ? 75 : 90;
+    } else {
+      confidence = Math.min(match.confidence, 40);
+    }
+    if (params.kind !== "PRODUCTS") {
+      if (!qty) confidence = Math.min(confidence, 50);
+      if (!price) confidence = Math.min(confidence, 60);
+    }
 
     await db.importItem.create({
       data: {

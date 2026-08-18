@@ -20,9 +20,10 @@ export function ConfidenceBadge({ confidence, method }: { confidence: number; me
   );
 }
 
-/** Prüfzeile: Produkt zuordnen, Menge/Preis korrigieren, übernehmen oder verwerfen. */
+/** Prüfzeile: je nach Import-Art Produkt zuordnen, Menge/Preis korrigieren, übernehmen oder verwerfen. */
 export function ItemReviewForm({
   itemId,
+  kind,
   supplierId,
   products,
   candidates,
@@ -31,6 +32,7 @@ export function ItemReviewForm({
   defaultPriceCents,
 }: {
   itemId: string;
+  kind: string;
   supplierId?: string | null;
   products: ProductOption[];
   candidates: Array<{ productId: string; name: string }>;
@@ -38,6 +40,31 @@ export function ItemReviewForm({
   defaultQty: number | null;
   defaultPriceCents: number | null;
 }) {
+  // Kunden/Lieferanten: kein Produkt, keine Menge – nur bestätigen
+  if (kind === "CUSTOMERS" || kind === "SUPPLIERS") {
+    return (
+      <ActionForm action={acceptItemAction} className="flex flex-wrap items-center gap-2">
+        <input type="hidden" name="itemId" value={itemId} />
+        <p className="min-w-[220px] flex-1 text-sm text-ink-secondary">
+          {kind === "CUSTOMERS" ? "Wird als Kunde angelegt" : "Wird als Lieferant angelegt"} – bereits
+          vorhandene Namen werden verknüpft, nicht doppelt angelegt.
+        </p>
+        <SubmitButton size="md">Übernehmen</SubmitButton>
+        <ActionButton
+          action={discardItemAction}
+          variant="ghost"
+          size="md"
+          hiddenFields={{ itemId }}
+          confirmMessage="Position wirklich verwerfen?"
+        >
+          Verwerfen
+        </ActionButton>
+      </ActionForm>
+    );
+  }
+
+  const allowsNewProduct = kind === "PRODUCTS" || kind === "OPENING_STOCK";
+  const showQtyPrice = kind !== "PRODUCTS";
   const candidateIds = new Set(candidates.map((c) => c.productId));
   return (
     <ActionForm action={acceptItemAction} className="flex flex-wrap items-end gap-2">
@@ -45,7 +72,7 @@ export function ItemReviewForm({
       {supplierId && <input type="hidden" name="supplierId" value={supplierId} />}
       <Field label="Produkt" className="min-w-[260px] flex-1">
         <Select name="productId" defaultValue={matchedProductId ?? ""}>
-          <option value="">– Produkt wählen –</option>
+          <option value="">{allowsNewProduct ? "– neues Produkt anlegen –" : "– Produkt wählen –"}</option>
           {candidates.length > 0 && (
             <optgroup label="Vorschläge">
               {candidates.map((c) => (
@@ -62,12 +89,16 @@ export function ItemReviewForm({
           </optgroup>
         </Select>
       </Field>
-      <Field label="Menge" className="w-24">
-        <Input type="number" name="qty" min={1} defaultValue={defaultQty ?? ""} required />
-      </Field>
-      <Field label="Einzelpreis" className="w-32">
-        <MoneyInput name="unitPriceCents" defaultCents={defaultPriceCents} required />
-      </Field>
+      {showQtyPrice && (
+        <>
+          <Field label={kind === "OPENING_STOCK" ? "Bestand" : "Menge"} className="w-24">
+            <Input type="number" name="qty" min={1} defaultValue={defaultQty ?? ""} required />
+          </Field>
+          <Field label={kind === "OPENING_STOCK" ? "EK je Einheit" : "Einzelpreis"} className="w-32">
+            <MoneyInput name="unitPriceCents" defaultCents={defaultPriceCents} required />
+          </Field>
+        </>
+      )}
       <SubmitButton size="md">Übernehmen</SubmitButton>
       <ActionButton
         action={discardItemAction}

@@ -19,6 +19,10 @@ type ParsedItem = {
   totalPriceCentsParsed?: number | null;
   matchMethod?: string;
   candidates?: Array<{ productId: string; name: string; score: number }>;
+  // Kontakt-Importe (Kunden/Lieferanten)
+  company?: string;
+  email?: string;
+  city?: string;
 };
 
 export default async function ImportBatchPage({ params }: { params: Promise<{ id: string }> }) {
@@ -102,9 +106,11 @@ export default async function ImportBatchPage({ params }: { params: Promise<{ id
               <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
                 <div className="flex flex-wrap items-center gap-2 text-sm">
                   <span className="text-xs text-ink-tertiary">Zeile {item.rowIndex + 1}</span>
-                  <span className="font-medium">{parsed.productName ?? Object.values(raw)[0] ?? "–"}</span>
+                  <span className="font-medium">{parsed.productName ?? parsed.company ?? Object.values(raw)[0] ?? "–"}</span>
                   {parsed.sku && <Badge>Art-Nr: {parsed.sku}</Badge>}
                   {parsed.ean && <Badge>EAN: {parsed.ean}</Badge>}
+                  {parsed.email && <Badge>{parsed.email}</Badge>}
+                  {parsed.city && <Badge>{parsed.city}</Badge>}
                   {parsed.qtyParsed != null && <Badge tone="blue">Menge: {parsed.qtyParsed}</Badge>}
                   {defaultPrice != null && <Badge tone="blue">{formatEur(defaultPrice)}</Badge>}
                   <ConfidenceBadge confidence={item.confidence} method={parsed.matchMethod} />
@@ -114,6 +120,7 @@ export default async function ImportBatchPage({ params }: { params: Promise<{ id
               {isOpen ? (
                 <ItemReviewForm
                   itemId={item.id}
+                  kind={batch.kind}
                   supplierId={supplierId}
                   products={products}
                   candidates={(parsed.candidates ?? []).map((c) => ({ productId: c.productId, name: c.name }))}
@@ -136,6 +143,22 @@ export default async function ImportBatchPage({ params }: { params: Promise<{ id
                       Übernommen als{" "}
                       <Link href={`/products/${item.resultRefId}`} className="font-medium hover:text-accent">
                         {productNameById.get(item.matchedProductId ?? "") ?? "Produkt öffnen →"}
+                      </Link>
+                    </>
+                  )}
+                  {item.status === "ACCEPTED" && item.resultRefType === "CUSTOMER" && item.resultRefId && (
+                    <>
+                      Übernommen –{" "}
+                      <Link href={`/customers/${item.resultRefId}`} className="font-medium hover:text-accent">
+                        Kunde öffnen →
+                      </Link>
+                    </>
+                  )}
+                  {item.status === "ACCEPTED" && item.resultRefType === "SUPPLIER" && item.resultRefId && (
+                    <>
+                      Übernommen –{" "}
+                      <Link href={`/suppliers/${item.resultRefId}`} className="font-medium hover:text-accent">
+                        Lieferant öffnen →
                       </Link>
                     </>
                   )}

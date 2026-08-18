@@ -9,6 +9,7 @@ import { createImportBatch, sha256 } from "../services/importing";
 import { learnSupplierMapping, matchProduct, similarity } from "../services/matching";
 import { extractInvoiceFromPdf } from "../services/pdf-extract";
 import { uploadVoucherToLexware, getLexwareConfig } from "../services/lexware";
+import { postInbound } from "../services/inventory";
 import { IMPORT_KINDS } from "@/lib/constants";
 import { runAction, str, optStr, optNum } from "./helpers";
 import type { ActionState } from "@/components/form";
@@ -273,13 +274,40 @@ export async function setItemProductAction(_prev: ActionState, formData: FormDat
   });
 }
 
+/** Produkt aus Import-Daten finden oder neu anlegen (Basiseinheit: Stück). */
+async function ensureProduct(
+  tx: Prisma.TransactionClient,
+  parsed: Record<string, unknown>,
+  productId: string | null
+) {
+  if (productId) {
+    return tx.product.findUniqueOrThrow({ where: { id: productId } });
+  }
+  const name = typeof parsed.productName === "string" ? parsed.productName.trim() : "";
+  if (!name) throw new AppError("Kein Produktname vorhanden – bitte ein Produkt zuordnen.");
+  // Duplikatschutz: exakt gleicher Name → vorhandenes Produkt verwenden
+  const existing = await tx.product.findFirst({ where: { name } });
+  if (existing) return existing;
+  const pieceUnit = await tx.unit.findFirst({ where: { code: "PIECE" } });
+  if (!pieceUnit) throw new AppError("Systemeinheit „Stück“ fehlt – bitte Einstellungen → Einheiten prüfen.");
+  return tx.product.create({
+    data: {
+      sku: await nextNumber("PRD", tx),
+      name,
+      ean: typeof parsed.ean === "string" && parsed.ean ? parsed.ean : null,
+      setName: typeof parsed.setName === "string" && parsed.setName ? parsed.setName : null,
+      baseUnitId: pieceUnit.id,
+    },
+  });
+}
+
 async function acceptSingleItem(
   tx: Prisma.TransactionClient,
   params: {
     itemId: string;
-    productId: string;
-    qty: number;
-    unitPriceCents: number;
+    productId: string | null;
+    qty: number | null;
+    unitPriceCents: number | null;
     userId: string;
   }
 ) {
@@ -291,82 +319,113 @@ async function acceptSingleItem(
     throw new AppError("Diese Position wurde bereits abgeschlossen.");
   }
   const batch = item.batch;
-  const product = await tx.product.findUniqueOrThrow({ where: { id: params.productId } });
+  const parsedData = item.parsed ? (JSON.parse(item.parsed) as Record<string, unknown>) : {};
+  const rawData = item.raw ? (JSON.parse(item.raw) as Record<string, string>) : {};
+  const field = (key: string): string | null => {
+    const v = parsedData[key];
+    return typeof v === "string" && v.trim() ? v.trim() : null;
+  };
+  const contactName = field("productName") ?? field("company") ?? (Object.values(rawData)[0]?.trim() || null);
 
   let resultRefType: string;
   let resultRefId: string;
+  let auditComment: string;
 
-  if (batch.kind === "SUPPLIER_INVOICE" || batch.kind === "PURCHASE_ORDER") {
-    // Ein Entwurfs-PO je Batch: erkennbar über supplierOrderNumber = IMPORT-<batchId>
-    const batchSupplierId = await resolveBatchSupplier(tx, batch.id);
-    if (!batchSupplierId) {
-      throw new AppError("Bitte beim Upload einen Lieferanten wählen, damit eine Entwurfs-Bestellung angelegt werden kann.");
-    }
-    let po = await tx.purchaseOrder.findFirst({
-      where: { supplierOrderNumber: `IMPORT-${batch.id}` },
-    });
-    if (!po) {
-      po = await tx.purchaseOrder.create({
+  if (batch.kind === "CUSTOMERS") {
+    if (!contactName) throw new AppError("Kein Kundenname in dieser Zeile erkennbar.");
+    const existing = await tx.customer.findFirst({ where: { name: contactName } });
+    const customer =
+      existing ??
+      (await tx.customer.create({
         data: {
-          orderNumber: await nextNumber("PO", tx),
-          supplierId: batchSupplierId,
-          supplierOrderNumber: `IMPORT-${batch.id}`,
-          status: "DRAFT",
+          code: await nextNumber("KND", tx),
+          name: contactName,
+          company: field("company"),
+          email: field("email"),
+          phone: field("phone"),
+          billingStreet: field("street"),
+          billingZip: field("zip"),
+          billingCity: field("city"),
+          shippingStreet: field("street"),
+          shippingZip: field("zip"),
+          shippingCity: field("city"),
         },
-      });
-      await writeEvent(
-        {
-          type: "PURCHASE_ORDER_CREATED",
-          entityType: "PURCHASE_ORDER",
-          entityId: po.id,
-          summary: `Entwurfs-Bestellung ${po.orderNumber} aus Import ${batch.filename ?? ""} erstellt`,
-          userId: params.userId,
+      }));
+    resultRefType = "CUSTOMER";
+    resultRefId = customer.id;
+    auditComment = existing
+      ? `Kunde „${contactName}“ existierte bereits – verknüpft`
+      : `Kunde „${contactName}“ angelegt`;
+  } else if (batch.kind === "SUPPLIERS") {
+    if (!contactName) throw new AppError("Kein Lieferantenname in dieser Zeile erkennbar.");
+    const existing = await tx.supplier.findFirst({ where: { name: contactName } });
+    const supplier =
+      existing ??
+      (await tx.supplier.create({
+        data: {
+          code: await nextNumber("SUP", tx),
+          name: contactName,
+          email: field("email"),
+          phone: field("phone"),
+          street: field("street"),
+          zip: field("zip"),
+          city: field("city"),
         },
-        tx
-      );
+      }));
+    resultRefType = "SUPPLIER";
+    resultRefId = supplier.id;
+    auditComment = existing
+      ? `Lieferant „${contactName}“ existierte bereits – verknüpft`
+      : `Lieferant „${contactName}“ angelegt`;
+  } else if (batch.kind === "OPENING_STOCK") {
+    const qty = params.qty ?? 0;
+    if (qty <= 0) throw new AppError("Bitte die Bestandsmenge angeben.");
+    if (params.unitPriceCents === null) {
+      throw new AppError("Bitte den Einkaufspreis (gewichteter Durchschnitt) angeben – er bestimmt den Lagerwert.");
     }
-    const position = await tx.purchaseOrderLine.count({ where: { purchaseOrderId: po.id } });
-    await tx.purchaseOrderLine.create({
-      data: {
-        purchaseOrderId: po.id,
-        productId: product.id,
-        position,
-        enteredQty: params.qty,
-        enteredUnitId: product.baseUnitId,
-        unitFactor: 1,
-        qtyOrdered: params.qty,
-        unitPriceCents: params.unitPriceCents,
-        lineTotalCents: params.qty * params.unitPriceCents,
-      },
+    const product = await ensureProduct(tx, parsedData, params.productId);
+    await postInbound(tx, {
+      productId: product.id,
+      qty,
+      type: "CORRECTION",
+      unitCostEurCents: params.unitPriceCents,
+      refType: "IMPORT",
+      refId: batch.id,
+      note: "Anfangsbestand (Alt-Datenübernahme)",
+      userId: params.userId,
     });
-    resultRefType = "PURCHASE_ORDER";
-    resultRefId = po.id;
-
-    // Mapping lernen
-    const parsed = item.parsed ? (JSON.parse(item.parsed) as Record<string, unknown>) : {};
-    if (typeof parsed.productName === "string") {
-      await tx.supplierProductMapping.upsert({
-        where: {
-          supplierId_supplierName: { supplierId: batchSupplierId, supplierName: parsed.productName.trim() },
-        },
-        create: {
-          supplierId: batchSupplierId,
-          productId: product.id,
-          supplierName: parsed.productName.trim(),
-          supplierSku: typeof parsed.sku === "string" ? parsed.sku.trim() : null,
-          lastPriceCents: params.unitPriceCents,
-        },
-        update: { productId: product.id, lastPriceCents: params.unitPriceCents },
-      });
-    }
-  } else if (batch.kind === "PRODUCTS") {
-    // Produktimport: das Item WURDE bereits einem Produkt zugeordnet → nichts anlegen
     resultRefType = "PRODUCT";
     resultRefId = product.id;
+    auditComment = `Anfangsbestand: ${qty} × ${product.name} zu ${(params.unitPriceCents / 100).toFixed(2).replace(".", ",")} € eingebucht`;
+  } else if (batch.kind === "PRODUCTS") {
+    const product = await ensureProduct(tx, parsedData, params.productId);
+    resultRefType = "PRODUCT";
+    resultRefId = product.id;
+    auditComment = params.productId
+      ? `Produkt „${product.name}“ verknüpft`
+      : `Produkt „${product.name}“ angelegt`;
+  } else if (batch.kind === "SUPPLIER_INVOICE" || batch.kind === "PURCHASE_ORDER") {
+    if (!params.productId) throw new AppError("Bitte zuerst ein Produkt zuordnen.");
+    const qty = params.qty ?? 0;
+    if (qty <= 0) throw new AppError("Bitte eine gültige Menge angeben.");
+    const unitPriceCents = params.unitPriceCents ?? 0;
+    if (unitPriceCents < 0) throw new AppError("Ungültiger Preis.");
+    const product = await tx.product.findUniqueOrThrow({ where: { id: params.productId } });
+    const { refType, refId, comment } = await acceptIntoDraftPo(tx, {
+      batch,
+      item,
+      product,
+      qty,
+      unitPriceCents,
+      userId: params.userId,
+    });
+    resultRefType = refType;
+    resultRefId = refId;
+    auditComment = comment;
   } else {
     throw new AppError(
       "Dieser Import-Typ wird über die Übernahme-Funktion nicht unterstützt. " +
-        "Bestandsänderungen bitte als Bestandskorrektur am Produkt buchen."
+        "Bestandsänderungen bitte als Anfangsbestand importieren oder als Bestandskorrektur am Produkt buchen."
     );
   }
 
@@ -375,13 +434,7 @@ async function acceptSingleItem(
     data: { status: "ACCEPTED", resultRefType, resultRefId },
   });
   await writeAudit(
-    {
-      userId: params.userId,
-      entityType: "IMPORT_ITEM",
-      entityId: item.id,
-      action: "IMPORT",
-      comment: `Übernommen: ${params.qty} × ${product.name} zu ${(params.unitPriceCents / 100).toFixed(2).replace(".", ",")} €`,
-    },
+    { userId: params.userId, entityType: "IMPORT_ITEM", entityId: item.id, action: "IMPORT", comment: auditComment },
     tx
   );
 
@@ -398,6 +451,89 @@ async function acceptSingleItem(
   return { resultRefType, resultRefId };
 }
 
+/** Rechnungs-/Bestellzeile in die Entwurfs-Bestellung des Batches übernehmen. */
+async function acceptIntoDraftPo(
+  tx: Prisma.TransactionClient,
+  params: {
+    batch: { id: string; filename: string | null; kind: string };
+    item: { parsed: string | null };
+    product: { id: string; name: string; baseUnitId: string };
+    qty: number;
+    unitPriceCents: number;
+    userId: string;
+  }
+) {
+  const { batch, item, product } = params;
+  // Ein Entwurfs-PO je Batch: erkennbar über supplierOrderNumber = IMPORT-<batchId>
+  const batchSupplierId = await resolveBatchSupplier(tx, batch.id);
+  if (!batchSupplierId) {
+    throw new AppError(
+      "Bitte beim Upload einen Lieferanten wählen, damit eine Entwurfs-Bestellung angelegt werden kann."
+    );
+  }
+  let po = await tx.purchaseOrder.findFirst({
+    where: { supplierOrderNumber: `IMPORT-${batch.id}` },
+  });
+  if (!po) {
+    po = await tx.purchaseOrder.create({
+      data: {
+        orderNumber: await nextNumber("PO", tx),
+        supplierId: batchSupplierId,
+        supplierOrderNumber: `IMPORT-${batch.id}`,
+        status: "DRAFT",
+      },
+    });
+    await writeEvent(
+      {
+        type: "PURCHASE_ORDER_CREATED",
+        entityType: "PURCHASE_ORDER",
+        entityId: po.id,
+        summary: `Entwurfs-Bestellung ${po.orderNumber} aus Import ${batch.filename ?? ""} erstellt`,
+        userId: params.userId,
+      },
+      tx
+    );
+  }
+  const position = await tx.purchaseOrderLine.count({ where: { purchaseOrderId: po.id } });
+  await tx.purchaseOrderLine.create({
+    data: {
+      purchaseOrderId: po.id,
+      productId: product.id,
+      position,
+      enteredQty: params.qty,
+      enteredUnitId: product.baseUnitId,
+      unitFactor: 1,
+      qtyOrdered: params.qty,
+      unitPriceCents: params.unitPriceCents,
+      lineTotalCents: params.qty * params.unitPriceCents,
+    },
+  });
+
+  // Mapping lernen: Lieferanten-Bezeichnung → Produkt
+  const parsed = item.parsed ? (JSON.parse(item.parsed) as Record<string, unknown>) : {};
+  if (typeof parsed.productName === "string" && parsed.productName.trim()) {
+    await tx.supplierProductMapping.upsert({
+      where: {
+        supplierId_supplierName: { supplierId: batchSupplierId, supplierName: parsed.productName.trim() },
+      },
+      create: {
+        supplierId: batchSupplierId,
+        productId: product.id,
+        supplierName: parsed.productName.trim(),
+        supplierSku: typeof parsed.sku === "string" ? parsed.sku.trim() : null,
+        lastPriceCents: params.unitPriceCents,
+      },
+      update: { productId: product.id, lastPriceCents: params.unitPriceCents },
+    });
+  }
+
+  return {
+    refType: "PURCHASE_ORDER",
+    refId: po.id,
+    comment: `Übernommen: ${params.qty} × ${product.name} zu ${(params.unitPriceCents / 100).toFixed(2).replace(".", ",")} € (${po.orderNumber})`,
+  };
+}
+
 /** Lieferant eines Batches: aus Upload-Auswahl (im Batch-Summary nicht gespeichert) → über Formular. */
 async function resolveBatchSupplier(tx: Prisma.TransactionClient, batchId: string): Promise<string | null> {
   // Der Lieferant wird beim Accept aus dem Formular übergeben und hier zwischengespeichert:
@@ -410,11 +546,10 @@ export async function acceptItemAction(_prev: ActionState, formData: FormData): 
     const user = await requireRole("STAFF");
     const itemId = str(formData, "itemId");
     const productId = optStr(formData, "productId");
-    if (!productId) throw new AppError("Bitte zuerst ein Produkt zuordnen.");
-    const qty = Math.round(optNum(formData, "qty") ?? 0);
-    if (qty <= 0) throw new AppError("Bitte eine gültige Menge angeben.");
-    const unitPriceCents = optNum(formData, "unitPriceCents") ?? 0;
-    if (unitPriceCents < 0) throw new AppError("Ungültiger Preis.");
+    const qtyRaw = optNum(formData, "qty");
+    const qty = qtyRaw !== null ? Math.round(qtyRaw) : null;
+    const unitPriceCents = optNum(formData, "unitPriceCents");
+    if (unitPriceCents !== null && unitPriceCents < 0) throw new AppError("Ungültiger Preis.");
     const supplierId = optStr(formData, "supplierId");
 
     await db.$transaction(async (tx) => {
@@ -436,11 +571,26 @@ export async function acceptAllConfidentAction(_prev: ActionState, formData: For
     const user = await requireRole("STAFF");
     const batchId = str(formData, "batchId");
     const supplierId = optStr(formData, "supplierId");
+    const batch = await db.importBatch.findUniqueOrThrow({ where: { id: batchId } });
+    // Bei Alt-Datenübernahmen (Kunden/Lieferanten/Produkte/Anfangsbestand) ist
+    // Neuanlage ohne Produktzuordnung der Normalfall – sonst Zuordnung Pflicht.
+    const contactKind = batch.kind === "CUSTOMERS" || batch.kind === "SUPPLIERS";
+    const allowsNewProducts = contactKind || batch.kind === "PRODUCTS" || batch.kind === "OPENING_STOCK";
     const items = await db.importItem.findMany({
-      where: { batchId, status: { in: ["PENDING", "EDITED"] }, confidence: { gte: 90 }, matchedProductId: { not: null } },
+      where: {
+        batchId,
+        status: { in: ["PENDING", "EDITED"] },
+        confidence: { gte: 90 },
+        ...(allowsNewProducts ? {} : { matchedProductId: { not: null } }),
+      },
+      orderBy: { rowIndex: "asc" },
     });
     if (items.length === 0) {
-      throw new AppError("Keine Positionen mit ausreichender Sicherheit (≥ 90 %) und Produktzuordnung vorhanden.");
+      throw new AppError(
+        allowsNewProducts
+          ? "Keine Positionen mit ausreichender Sicherheit (≥ 90 %) vorhanden – bitte einzeln prüfen."
+          : "Keine Positionen mit ausreichender Sicherheit (≥ 90 %) und Produktzuordnung vorhanden."
+      );
     }
     let accepted = 0;
     for (const item of items) {
@@ -452,7 +602,9 @@ export async function acceptAllConfidentAction(_prev: ActionState, formData: For
           : typeof parsed.totalPriceCentsParsed === "number" && qty
             ? Math.round(parsed.totalPriceCentsParsed / qty)
             : null;
-      if (!qty || price === null) continue;
+      // Kunden/Lieferanten/Produkte brauchen weder Menge noch Preis –
+      // Rechnungen/Bestellungen und Anfangsbestand schon.
+      if (!contactKind && batch.kind !== "PRODUCTS" && (!qty || price === null)) continue;
       await db.$transaction(async (tx) => {
         if (supplierId) {
           await tx.setting.upsert({
@@ -463,7 +615,7 @@ export async function acceptAllConfidentAction(_prev: ActionState, formData: For
         }
         await acceptSingleItem(tx, {
           itemId: item.id,
-          productId: item.matchedProductId!,
+          productId: item.matchedProductId,
           qty,
           unitPriceCents: price,
           userId: user.id,
