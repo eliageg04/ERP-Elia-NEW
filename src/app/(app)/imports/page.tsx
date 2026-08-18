@@ -1,8 +1,10 @@
 import Link from "next/link";
 import { db } from "@/server/db";
 import { PageHeader, Table, THead, Th, Td, Tr, StatusBadge, EmptyState } from "@/components/ui";
+import { ActionButton } from "@/components/form";
 import { formatDateTime } from "@/lib/format";
 import { label } from "@/lib/constants";
+import { syncLexwareAction } from "@/server/actions/lexware";
 import { UploadForm } from "./upload-form";
 
 export const dynamic = "force-dynamic";
@@ -17,13 +19,14 @@ const KIND_LABELS: Record<string, string> = {
 };
 
 export default async function ImportsPage() {
-  const [batches, suppliers] = await Promise.all([
+  const [batches, suppliers, lexware] = await Promise.all([
     db.importBatch.findMany({
       include: { items: { select: { status: true } } },
       orderBy: { createdAt: "desc" },
       take: 50,
     }),
     db.supplier.findMany({ where: { active: true }, orderBy: { name: "asc" } }),
+    db.integrationConfig.findUnique({ where: { provider: "LEXWARE" } }),
   ]);
 
   return (
@@ -31,6 +34,13 @@ export default async function ImportsPage() {
       <PageHeader
         title="Import"
         subtitle="Automatisch importierte Daten landen zuerst in der Inbox – nichts wird ungeprüft übernommen."
+        actions={
+          lexware?.enabled ? (
+            <ActionButton action={syncLexwareAction} variant="primary" size="md">
+              Aus Lexware abrufen
+            </ActionButton>
+          ) : undefined
+        }
       />
 
       <UploadForm suppliers={suppliers.map((s) => ({ id: s.id, label: s.name }))} />

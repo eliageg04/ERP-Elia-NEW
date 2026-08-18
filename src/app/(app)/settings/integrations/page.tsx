@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 import { db } from "@/server/db";
 import { requireUser } from "@/server/auth";
 import { PageHeader, Card, Badge } from "@/components/ui";
-import { UpsIntegrationForm } from "./integration-panels";
+import { UpsIntegrationForm, LexwareIntegrationForm } from "./integration-panels";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Integrationen" };
@@ -14,6 +14,8 @@ export default async function IntegrationsPage() {
 
   const ups = await db.integrationConfig.findUnique({ where: { provider: "UPS" } });
   const hasCredentials = Boolean(ups?.config && JSON.parse(ups.config)?.clientId);
+  const lexware = await db.integrationConfig.findUnique({ where: { provider: "LEXWARE" } });
+  const lexwareHasKey = Boolean(lexware?.config && JSON.parse(lexware.config)?.apiKey);
 
   return (
     <div className="flex flex-col gap-6">
@@ -42,15 +44,25 @@ export default async function IntegrationsPage() {
         <UpsIntegrationForm enabled={ups?.enabled ?? false} mode={ups?.mode ?? "MOCK"} hasCredentials={hasCredentials} />
       </Card>
 
-      <Card title="Lexware">
-        <p className="text-sm text-ink-secondary">
-          Lexware bietet kein öffentliches API. Der zuverlässige Weg ist der{" "}
-          <span className="font-medium">CSV-Export aus Lexware</span> (Belege/Artikel), der unter{" "}
-          <Link href="/imports" className="font-medium text-accent hover:underline">System → Import</Link>{" "}
-          hochgeladen wird. Spalten wie „Artikelnummer“, „Bezeichnung“, „Menge“ und „Einzelpreis“
-          werden automatisch erkannt; Produkte werden über EAN, SKU, gelernte Mappings und
-          Namensähnlichkeit zugeordnet – mit Prüfung in der Import-Inbox.
+      <Card
+        title={
+          <span className="flex items-center gap-2">
+            Lexware Office
+            {lexware?.enabled ? <Badge tone="green">Aktiv</Badge> : <Badge>Aus</Badge>}
+          </span>
+        }
+      >
+        <p className="mb-4 text-sm text-ink-secondary">
+          Holt neue <span className="font-medium">Eingangsrechnungen (Belege)</span> automatisch über
+          die offizielle Lexware-Office-API in die{" "}
+          <Link href="/imports" className="font-medium text-accent hover:underline">Import-Inbox</Link>:
+          Lieferant, Rechnungsnummer, Datum und Betrag werden übernommen und der Lieferant automatisch
+          zugeordnet. Beim Prüfen ergänzt du Produkt, Menge und Einzelpreis – daraus entsteht die
+          Entwurfs-Vorbestellung. Abruf: automatisch einmal täglich sowie jederzeit per Knopfdruck.
+          Bereits importierte Belege werden nie doppelt übernommen. Alternativ funktioniert weiterhin
+          der CSV-Export-Upload unter System → Import.
         </p>
+        <LexwareIntegrationForm enabled={lexware?.enabled ?? false} hasApiKey={lexwareHasKey} />
       </Card>
 
       <Card title="Weitere Carrier (DHL, DPD, GLS, FedEx)">

@@ -90,6 +90,36 @@ export async function updateIntegrationAction(_prev: ActionState, formData: Form
   return runAction(async () => {
     const user = await requireRole("ADMIN");
     const provider = str(formData, "provider");
+
+    if (provider === "LEXWARE") {
+      const enabled = formData.get("enabled") === "on";
+      const apiKey = optStr(formData, "apiKey");
+      const baseUrl = optStr(formData, "baseUrl");
+      const existing = await db.integrationConfig.findUnique({ where: { provider } });
+      const prev = existing?.config ? (JSON.parse(existing.config) as Record<string, string>) : {};
+      const merged = {
+        apiKey: apiKey ?? prev.apiKey,
+        baseUrl: baseUrl ?? prev.baseUrl,
+      };
+      if (enabled && !merged.apiKey) {
+        throw new AppError("Bitte den Lexware-API-Schlüssel eintragen, bevor die Integration aktiviert wird.");
+      }
+      await db.integrationConfig.upsert({
+        where: { provider },
+        create: { provider, enabled, mode: "LIVE", config: JSON.stringify(merged) },
+        update: { enabled, config: JSON.stringify(merged) },
+      });
+      await writeAudit({
+        userId: user.id,
+        entityType: "INTEGRATION",
+        entityId: provider,
+        action: "UPDATE",
+        changes: [{ field: "enabled", old: existing?.enabled ?? null, new: enabled }],
+        comment: apiKey ? "API-Schlüssel aktualisiert" : undefined,
+      });
+      return;
+    }
+
     if (provider !== "UPS") throw new AppError("Unbekannter Integrations-Provider.");
     const enabled = formData.get("enabled") === "on";
     const mode = str(formData, "mode") === "LIVE" ? "LIVE" : "MOCK";
