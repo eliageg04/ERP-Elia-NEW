@@ -9,10 +9,16 @@ const globalForPrisma = globalThis as unknown as { prisma?: PrismaClient };
  */
 function resolveDbUrl(): string | undefined {
   const url = process.env.DATABASE_URL ?? process.env.POSTGRES_PRISMA_URL;
-  if (url?.startsWith("postgres") && url.includes("-pooler") && !url.includes("pgbouncer")) {
-    return url + (url.includes("?") ? "&" : "?") + "pgbouncer=true&connection_limit=1";
-  }
-  return url;
+  if (!url?.startsWith("postgres")) return url;
+  const extra: string[] = [];
+  // PgBouncer-Modus (Neon-Pooler): Prepared Statements deaktivieren
+  if (!url.includes("pgbouncer")) extra.push("pgbouncer=true");
+  // Serverless: eine Verbindung pro Funktion
+  if (!url.includes("connection_limit")) extra.push("connection_limit=1");
+  // Neon-Kaltstart kann einige Sekunden dauern
+  if (!url.includes("connect_timeout")) extra.push("connect_timeout=15");
+  if (extra.length === 0) return url;
+  return url + (url.includes("?") ? "&" : "?") + extra.join("&");
 }
 
 export const db =
