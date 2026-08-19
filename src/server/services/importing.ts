@@ -64,6 +64,7 @@ const COLUMN_ALIASES: Record<string, string[]> = {
   street: ["straße", "strasse", "street", "adresse", "anschrift"],
   zip: ["plz", "zip", "postleitzahl"],
   city: ["ort", "stadt", "city"],
+  country: ["land", "country", "länderkennzeichen"],
 };
 
 export function mapColumns(row: ParsedRow): Record<string, string> {

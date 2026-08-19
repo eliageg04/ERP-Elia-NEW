@@ -346,9 +346,11 @@ async function acceptSingleItem(
           billingStreet: field("street"),
           billingZip: field("zip"),
           billingCity: field("city"),
+          billingCountry: field("country") ?? undefined,
           shippingStreet: field("street"),
           shippingZip: field("zip"),
           shippingCity: field("city"),
+          shippingCountry: field("country") ?? undefined,
         },
       }));
     resultRefType = "CUSTOMER";
@@ -370,6 +372,7 @@ async function acceptSingleItem(
           street: field("street"),
           zip: field("zip"),
           city: field("city"),
+          country: field("country") ?? undefined,
         },
       }));
     resultRefType = "SUPPLIER";
