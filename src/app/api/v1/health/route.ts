@@ -14,6 +14,8 @@ export async function GET() {
     dbUrlIsPooler: rawUrl.includes("-pooler"),
     hasSessionSecret: Boolean(process.env.SESSION_SECRET),
     hasAdminEnv: Boolean(process.env.ADMIN_EMAIL && process.env.ADMIN_PASSWORD),
+    // Diagnose Passwort-Reset (Wert ist nur true/false o.ä., nicht sensibel)
+    resetFlag: (process.env.ADMIN_PASSWORD_RESET ?? "").trim().slice(0, 10) || "nicht gesetzt",
     runtime: process.env.VERCEL ? "vercel" : "lokal",
   };
   try {
@@ -21,6 +23,15 @@ export async function GET() {
     info.db = "ok";
     info.users = users;
     info.units = units;
+    const adminEmail = (process.env.ADMIN_EMAIL ?? "").toLowerCase().trim();
+    if (adminEmail) {
+      info.adminEmailUserExists = Boolean(await db.user.findUnique({ where: { email: adminEmail } }));
+    }
+    const lastReset = await db.auditLog.findFirst({
+      where: { comment: { contains: "Deployment-Reset" } },
+      orderBy: { createdAt: "desc" },
+    });
+    info.lastPasswordReset = lastReset ? lastReset.createdAt.toISOString() : null;
   } catch (err) {
     const e = err as Error & { code?: string };
     info.db = "FEHLER";

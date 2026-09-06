@@ -54,8 +54,8 @@ async function main() {
 
   const userCount = await db.user.count();
   if (userCount === 0) {
-    const email = (process.env.ADMIN_EMAIL ?? "admin@elia-erp.de").toLowerCase();
-    const password = process.env.ADMIN_PASSWORD ?? "admin1234";
+    const email = (process.env.ADMIN_EMAIL ?? "admin@elia-erp.de").toLowerCase().trim();
+    const password = (process.env.ADMIN_PASSWORD ?? "admin1234").trim();
     const name = process.env.ADMIN_NAME ?? "Admin";
     if (password.length < 8) {
       console.error("ADMIN_PASSWORD muss mindestens 8 Zeichen haben.");
@@ -73,9 +73,12 @@ async function main() {
   }
 
   // Notfall-Reset: nur aktiv, wenn die Variable explizit gesetzt ist
-  if (process.env.ADMIN_PASSWORD_RESET === "true") {
+  // (tolerant gegenüber Schreibweisen: true/TRUE/1/yes/ja)
+  const resetFlag = (process.env.ADMIN_PASSWORD_RESET ?? "").trim().toLowerCase();
+  if (["true", "1", "yes", "ja"].includes(resetFlag)) {
     const email = (process.env.ADMIN_EMAIL ?? "").toLowerCase().trim();
-    const password = process.env.ADMIN_PASSWORD ?? "";
+    // trim: beim Einfügen in Vercel landen leicht unsichtbare Leerzeichen/Zeilenumbrüche im Wert
+    const password = (process.env.ADMIN_PASSWORD ?? "").trim();
     if (!email || password.length < 8) {
       console.error(
         "ADMIN_PASSWORD_RESET=true gesetzt, aber ADMIN_EMAIL fehlt oder ADMIN_PASSWORD hat weniger als 8 Zeichen – Reset übersprungen."
