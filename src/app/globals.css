@@ -1,9 +1,9 @@
 @import "tailwindcss";
 
 /* ============================================================
-   Design-System: dunkel, ruhig, edel (Apple-/macOS-Anmutung).
-   Weiche Kontraste, organisch runde Formen, Statusfarben nur
-   als dezente Badges – keine grellen Flächen.
+   Design-System: warmes Graphit, cremeweiße Akzente, erdige
+   gedämpfte Statusfarben, organisch runde Formen. Ruhig und
+   hochwertig – keine grellen Farben, keine harten Kontraste.
    ============================================================ */
 
 @theme {
@@ -12,37 +12,37 @@
   --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
     monospace;
 
-  /* Dunkle, weiche Neutralskala */
-  --color-canvas: #0e0e11; /* Seitenhintergrund */
-  --color-surface: #1a1a1f; /* Karten, Leisten, Eingaben */
-  --color-border: rgba(255, 255, 255, 0.07);
-  --color-border-strong: rgba(255, 255, 255, 0.16);
-  --color-ink: #f5f5f7;
-  --color-ink-secondary: rgba(235, 235, 245, 0.64);
-  --color-ink-tertiary: rgba(235, 235, 245, 0.38);
+  /* Warme Graphit-Skala (dunkel, aber weich – kein Schwarz) */
+  --color-canvas: #29282c; /* Seitenhintergrund */
+  --color-surface: #323136; /* Karten, Leisten, Eingaben */
+  --color-border: rgba(255, 255, 255, 0.08);
+  --color-border-strong: rgba(255, 255, 255, 0.18);
+  --color-ink: #edeae3; /* warmes Cremeweiß */
+  --color-ink-secondary: rgba(237, 234, 227, 0.65);
+  --color-ink-tertiary: rgba(237, 234, 227, 0.4);
 
-  /* Akzent: Apple-Blau (Dark-Mode-Variante) */
-  --color-accent: #0a84ff;
-  --color-accent-hover: #409cff;
-  --color-accent-soft: rgba(10, 132, 255, 0.16);
+  /* Akzent: Creme statt Blau – ruhig und edel */
+  --color-accent: #e4dfd4;
+  --color-accent-hover: #f4efe4;
+  --color-accent-soft: rgba(228, 223, 212, 0.1);
 
-  /* Status (dezent, auf dunklem Grund) */
-  --color-ok: #32d74b;
-  --color-ok-soft: rgba(50, 215, 75, 0.13);
-  --color-warn: #ff9f0a;
-  --color-warn-soft: rgba(255, 159, 10, 0.13);
-  --color-danger: #ff453a;
-  --color-danger-soft: rgba(255, 69, 58, 0.13);
-  --color-info: #64b5ff;
-  --color-info-soft: rgba(10, 132, 255, 0.14);
-  --color-violet: #bf5af2;
-  --color-violet-soft: rgba(191, 90, 242, 0.14);
+  /* Statusfarben: erdig und stark gedämpft, nur für Badges */
+  --color-ok: #a8c5a1; /* Salbeigrün */
+  --color-ok-soft: rgba(168, 197, 161, 0.13);
+  --color-warn: #d6bb93; /* warmer Sand */
+  --color-warn-soft: rgba(214, 187, 147, 0.13);
+  --color-danger: #d69a94; /* gedämpfter Ton */
+  --color-danger-soft: rgba(214, 154, 148, 0.13);
+  --color-info: #aebdc9; /* blaugrauer Nebel */
+  --color-info-soft: rgba(174, 189, 201, 0.12);
+  --color-violet: #b8aac4; /* zartes Taupe-Mauve */
+  --color-violet-soft: rgba(184, 170, 196, 0.12);
 
-  /* Organischere, rundere Formen */
-  --radius-md: 0.625rem;
-  --radius-lg: 0.875rem;
-  --radius-xl: 1.25rem;
-  --radius-2xl: 1.75rem;
+  /* Deutlich rundere, organische Formen */
+  --radius-md: 0.75rem;
+  --radius-lg: 1.125rem;
+  --radius-xl: 1.5rem;
+  --radius-2xl: 2rem;
 }
 
 html {
@@ -53,12 +53,10 @@ html {
 body {
   @apply bg-canvas text-ink;
   font-feature-settings: "tnum" 1, "cv03" 1;
-  /* Sanfter Lichtschein oben – wirkt wärmer als eine flache Fläche */
-  background-image: radial-gradient(
-    1200px 500px at 50% -10%,
-    rgba(10, 132, 255, 0.07),
-    transparent 70%
-  );
+  /* Zwei sehr sanfte, warme Lichtflächen – wirkt organisch statt flach */
+  background-image:
+    radial-gradient(1000px 600px at 85% -10%, rgba(228, 223, 212, 0.05), transparent 60%),
+    radial-gradient(900px 600px at -10% 110%, rgba(168, 197, 161, 0.04), transparent 60%);
   background-attachment: fixed;
 }
 
@@ -75,16 +73,16 @@ input,
 select,
 textarea {
   transition:
-    background-color 160ms ease,
-    border-color 160ms ease,
-    color 160ms ease,
-    opacity 160ms ease,
-    box-shadow 160ms ease;
+    background-color 180ms ease,
+    border-color 180ms ease,
+    color 180ms ease,
+    opacity 180ms ease,
+    box-shadow 180ms ease;
 }
 
-/* Textauswahl im Akzentton */
+/* Textauswahl im warmen Ton */
 ::selection {
-  background: rgba(10, 132, 255, 0.35);
+  background: rgba(228, 223, 212, 0.28);
 }
 
 /* Native Controls (Datumswähler etc.) im Dark-Stil */

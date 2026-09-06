@@ -51,7 +51,7 @@ export function Card({
   return (
     <section
       className={cn(
-        "rounded-xl border border-border bg-surface shadow-[0_1px_0_rgba(255,255,255,0.04)_inset,0_8px_24px_rgba(0,0,0,0.25)]",
+        "rounded-xl border border-border bg-surface shadow-[0_1px_0_rgba(255,255,255,0.05)_inset,0_10px_30px_rgba(0,0,0,0.16)]",
         className
       )}
     >
@@ -137,7 +137,7 @@ export function Table({ children, className }: { children: React.ReactNode; clas
   return (
     <div
       className={cn(
-        "overflow-x-auto rounded-xl border border-border bg-surface shadow-[0_1px_0_rgba(255,255,255,0.04)_inset,0_8px_24px_rgba(0,0,0,0.25)]",
+        "overflow-x-auto rounded-xl border border-border bg-surface shadow-[0_1px_0_rgba(255,255,255,0.05)_inset,0_10px_30px_rgba(0,0,0,0.16)]",
         className
       )}
     >
@@ -279,7 +279,7 @@ export function QtyProgress({
 // ---------- Buttons (Link-Varianten; Form-Buttons in form.tsx) ----------
 
 const BUTTON_STYLES = {
-  primary: "bg-accent text-white hover:bg-accent-hover border-transparent shadow-[0_0_16px_rgba(10,132,255,0.25)]",
+  primary: "bg-accent text-canvas hover:bg-accent-hover border-transparent",
   secondary: "bg-surface text-ink border-border-strong hover:bg-canvas",
   ghost: "bg-transparent text-ink-secondary border-transparent hover:bg-canvas hover:text-ink",
   danger: "bg-surface text-danger border-danger/40 hover:bg-danger-soft",
@@ -287,9 +287,9 @@ const BUTTON_STYLES = {
 
 export function buttonClass(variant: keyof typeof BUTTON_STYLES = "secondary", size: "sm" | "md" = "md") {
   return cn(
-    "inline-flex items-center justify-center gap-1.5 rounded-md border font-medium transition-colors",
+    "inline-flex items-center justify-center gap-1.5 rounded-full border font-medium transition-colors",
     "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent",
-    size === "sm" ? "px-2.5 py-1 text-xs" : "px-3 py-1.5 text-sm",
+    size === "sm" ? "px-3 py-1 text-xs" : "px-4 py-1.5 text-sm",
     BUTTON_STYLES[variant]
   );
 }

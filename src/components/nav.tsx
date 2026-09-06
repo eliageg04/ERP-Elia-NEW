@@ -109,7 +109,7 @@ export function Sidebar() {
   return (
     <aside className="sticky top-0 hidden h-screen w-56 shrink-0 overflow-y-auto border-r border-border bg-surface/70 backdrop-blur-xl lg:block">
       <Link href="/" className="flex items-center gap-2 px-5 py-4 transition-opacity hover:opacity-80">
-        <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-accent text-sm font-bold text-white shadow-[0_0_16px_rgba(10,132,255,0.35)]">
+        <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-accent text-sm font-bold text-canvas">
           E
         </div>
         <span className="text-sm font-semibold tracking-tight">Elia ERP</span>
