@@ -9,9 +9,12 @@ import {
   getPoLineStats,
   recomputePoStatus,
   createInboundShipment,
+  postGoodsReceipt,
   recomputeLandedCosts,
 } from "../services/purchasing";
 import { addCost } from "../services/finance";
+import { extractInvoiceFromPdf } from "../services/pdf-extract";
+import { matchProduct, similarity, findOrCreateProduct } from "../services/matching";
 import { runAction, str, optStr, num, optNum, optDate } from "./helpers";
 import {
   CURRENCIES,
@@ -93,8 +96,8 @@ export async function updatePoHeaderAction(
       supplierOrderNumber: optStr(formData, "supplierOrderNumber"),
       currency,
       fxRate,
-      orderedAt: optDate(formData, "orderedAt"),
-      expectedAt: optDate(formData, "expectedAt"),
+      orderedAt: optDate(formData, "orderedAt") ?? before.orderedAt,
+      expectedAt: optDate(formData, "expectedAt") ?? before.expectedAt,
     };
     const changes = diffChanges(before as unknown as Record<string, unknown>, data);
     await db.$transaction(async (tx) => {
@@ -613,5 +616,251 @@ export async function addPoCostAction(_prev: ActionState, formData: FormData): P
       changes: [{ field: "amountEurCents", old: null, new: amountCents }],
       comment: `Nebenkosten erfasst (${type}, ${allocationMethod})`,
     });
+  });
+}
+
+// ---------- Schnell-Workflow: Tracking → versendet → zugestellt → Bestand ----------
+
+/**
+ * Tracking hinzufügen: meldet alle noch offenen Mengen der Bestellung als
+ * versendet (eine Sendung mit Trackingnummer). Entwürfe werden dabei
+ * automatisch als „Bestellt“ markiert.
+ */
+export async function addPoTrackingAction(_prev: ActionState, formData: FormData): Promise<ActionState> {
+  return runAction(async () => {
+    const user = await requireRole("STAFF");
+    const id = str(formData, "id");
+    const carrier = optStr(formData, "carrier");
+    if (carrier && !(CARRIERS as readonly string[]).includes(carrier)) {
+      throw new AppError("Ungültiger Versanddienstleister.");
+    }
+    const trackingNumber = optStr(formData, "trackingNumber");
+    const po = await db.purchaseOrder.findUniqueOrThrow({ where: { id }, include: { lines: true } });
+    if (po.status === "CANCELLED") throw new AppError("Die Bestellung ist storniert.");
+    if (po.lines.length === 0) {
+      throw new AppError("Die Bestellung hat noch keine Positionen – bitte zuerst Produkte erfassen.");
+    }
+    if (po.status === "DRAFT") {
+      await db.purchaseOrder.update({
+        where: { id },
+        data: { status: "ORDERED", orderedAt: po.orderedAt ?? new Date() },
+      });
+    }
+    const stats = await getPoLineStats(id);
+    const items = stats
+      .filter((s) => s.ordered - s.shipped > 0)
+      .map((s) => ({ poLineId: s.poLineId, qty: s.ordered - s.shipped }));
+    if (items.length === 0) {
+      throw new AppError("Alle Positionen sind bereits als versendet gemeldet.");
+    }
+    await createInboundShipment({
+      purchaseOrderId: id,
+      items,
+      carrier,
+      trackingNumber,
+      userId: user.id,
+    });
+  });
+}
+
+/**
+ * Als zugestellt markieren: bucht alle noch offenen Mengen als Wareneingang
+ * ein – die Ware wandert damit automatisch in den Bestand (FIFO-Chargen).
+ */
+export async function markPoDeliveredAction(_prev: ActionState, formData: FormData): Promise<ActionState> {
+  return runAction(async () => {
+    const user = await requireRole("STAFF");
+    const id = str(formData, "id");
+    const po = await db.purchaseOrder.findUniqueOrThrow({
+      where: { id },
+      include: {
+        lines: true,
+        shipments: { where: { status: { not: "CANCELLED" } }, orderBy: { createdAt: "desc" } },
+      },
+    });
+    if (po.status === "CANCELLED") throw new AppError("Die Bestellung ist storniert.");
+    if (po.lines.length === 0) {
+      throw new AppError("Die Bestellung hat noch keine Positionen – bitte zuerst Produkte erfassen.");
+    }
+    // Auch ohne vorherige Sendungsmeldung möglich (z.B. Abholung)
+    if (po.status === "DRAFT") {
+      await db.purchaseOrder.update({
+        where: { id },
+        data: { status: "ORDERED", orderedAt: po.orderedAt ?? new Date() },
+      });
+    }
+    const stats = await getPoLineStats(id);
+    const items = stats
+      .filter((s) => s.ordered - s.arrived > 0)
+      .map((s) => ({ poLineId: s.poLineId, qtyReceived: s.ordered - s.arrived }));
+    if (items.length === 0) {
+      throw new AppError("Die Bestellung ist bereits vollständig im Bestand eingebucht.");
+    }
+    const openShipment = po.shipments.find((s) => s.status !== "ARRIVED") ?? po.shipments[0] ?? null;
+    await postGoodsReceipt({
+      purchaseOrderId: id,
+      shipmentId: openShipment?.id ?? null,
+      items,
+      userId: user.id,
+    });
+  });
+}
+
+// ---------- PDF-Rechnung → Bestellung (KI) ----------
+
+/**
+ * Bezahlte Lieferantenrechnung als PDF hochladen: die KI liest Lieferant,
+ * Ordernummer, Datum und Positionen aus und legt die Bestellung direkt an.
+ * Unbekannte Produkte werden automatisch angelegt (exakter Name = Duplikatschutz).
+ */
+export async function uploadPoPdfAction(_prev: ActionState, formData: FormData): Promise<ActionState> {
+  return runAction(async () => {
+    const user = await requireRole("STAFF");
+    const file = formData.get("file");
+    if (!(file instanceof File) || file.size === 0) {
+      throw new AppError("Bitte eine PDF-Rechnung auswählen.");
+    }
+    if (!file.name.toLowerCase().endsWith(".pdf")) {
+      throw new AppError("Bitte eine PDF-Datei hochladen (für CSV/Excel den Import-Bereich nutzen).");
+    }
+    if (file.size > 4 * 1024 * 1024) {
+      throw new AppError("PDF zu groß (max. 4 MB). Bitte die Rechnung verkleinern.");
+    }
+    const buffer = Buffer.from(await file.arrayBuffer());
+    const invoice = await extractInvoiceFromPdf(buffer);
+    if (invoice.items.length === 0) {
+      throw new AppError("In der PDF wurden keine Artikelpositionen erkannt – bitte manuell erfassen.");
+    }
+
+    // Lieferant: Formularauswahl hat Vorrang, sonst KI-Namenserkennung
+    let supplierId = optStr(formData, "supplierId");
+    let supplierNote = "";
+    if (!supplierId && invoice.supplierName) {
+      const suppliers = await db.supplier.findMany({ where: { active: true } });
+      let best: (typeof suppliers)[number] | null = null;
+      let bestScore = 0;
+      for (const s of suppliers) {
+        const score = similarity(invoice.supplierName, s.name);
+        if (score > bestScore) {
+          bestScore = score;
+          best = s;
+        }
+      }
+      if (best && bestScore >= 0.55) {
+        supplierId = best.id;
+        supplierNote = ` (Lieferant erkannt: ${best.name})`;
+      }
+    }
+    if (!supplierId) {
+      throw new AppError(
+        (invoice.supplierName
+          ? `Der Lieferant „${invoice.supplierName}“ ist nicht im System.`
+          : "Der Lieferant konnte nicht erkannt werden.") +
+          " Bitte beim Upload einen Lieferanten auswählen (oder unter Großhändler anlegen)."
+      );
+    }
+
+    // Duplikatschutz: gleiche Ordernummer beim selben Lieferanten
+    const orderNo = invoice.invoiceNumber?.trim() || null;
+    if (orderNo) {
+      const dupe = await db.purchaseOrder.findFirst({
+        where: { supplierId, supplierOrderNumber: orderNo, status: { not: "CANCELLED" } },
+      });
+      if (dupe) {
+        throw new AppError(
+          `Zur Ordernummer ${orderNo} existiert bereits die Bestellung ${dupe.orderNumber}. Duplikat verhindert.`
+        );
+      }
+    }
+
+    const parsedDate = invoice.invoiceDate ? new Date(invoice.invoiceDate) : null;
+    const orderedAt = parsedDate && !isNaN(parsedDate.getTime()) ? parsedDate : new Date();
+
+    const poId = await db.$transaction(
+      async (tx) => {
+        const po = await tx.purchaseOrder.create({
+          data: {
+            orderNumber: await nextNumber("PO", tx),
+            supplierId: supplierId!,
+            supplierOrderNumber: orderNo,
+            status: "ORDERED",
+            orderedAt,
+          },
+        });
+        let position = 0;
+        for (const item of invoice.items) {
+          const qty = Math.round(item.quantity);
+          if (qty <= 0) continue;
+          const unitPriceCents =
+            item.unitPrice !== null
+              ? Math.round(item.unitPrice * 100)
+              : item.totalPrice !== null
+                ? Math.round((item.totalPrice * 100) / qty)
+                : 0;
+          // Nur sichere Treffer verknüpfen – sonst neues Produkt (exakter Name dedupliziert)
+          const match = await matchProduct({ name: item.description, sku: item.sku, supplierId });
+          const product =
+            match.productId && match.confidence >= 90
+              ? await tx.product.findUniqueOrThrow({ where: { id: match.productId } })
+              : await findOrCreateProduct(tx, { name: item.description });
+          position += 1;
+          await tx.purchaseOrderLine.create({
+            data: {
+              purchaseOrderId: po.id,
+              productId: product.id,
+              position,
+              enteredQty: qty,
+              enteredUnitId: product.baseUnitId,
+              unitFactor: 1,
+              qtyOrdered: qty,
+              unitPriceCents,
+              lineTotalCents: qty * unitPriceCents,
+            },
+          });
+          // Lieferanten-Bezeichnung → Produkt lernen (bessere Erkennung beim nächsten Mal)
+          if (item.description.trim()) {
+            await tx.supplierProductMapping.upsert({
+              where: {
+                supplierId_supplierName: { supplierId: supplierId!, supplierName: item.description.trim() },
+              },
+              create: {
+                supplierId: supplierId!,
+                productId: product.id,
+                supplierName: item.description.trim(),
+                supplierSku: item.sku?.trim() || null,
+                lastPriceCents: unitPriceCents,
+              },
+              update: { productId: product.id, lastPriceCents: unitPriceCents },
+            });
+          }
+        }
+        if (position === 0) {
+          throw new AppError("Keine Position mit Menge > 0 erkannt – bitte manuell erfassen.");
+        }
+        await writeAudit(
+          {
+            userId: user.id,
+            entityType: "PURCHASE_ORDER",
+            entityId: po.id,
+            action: "IMPORT",
+            comment: `Bestellung ${po.orderNumber} per KI aus PDF ${file.name} angelegt (${position} Positionen)${supplierNote}`,
+          },
+          tx
+        );
+        await writeEvent(
+          {
+            type: "PURCHASE_ORDER_CREATED",
+            entityType: "PURCHASE_ORDER",
+            entityId: po.id,
+            summary: `Bestellung ${po.orderNumber} aus Rechnung ${orderNo ?? file.name} angelegt (${position} Positionen)`,
+            userId: user.id,
+          },
+          tx
+        );
+        return po.id;
+      },
+      { timeout: 30_000 }
+    );
+    return { redirect: `/purchase-orders/${poId}` };
   });
 }

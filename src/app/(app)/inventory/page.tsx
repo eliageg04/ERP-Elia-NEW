@@ -1,13 +1,88 @@
 import Link from "next/link";
 import { db } from "@/server/db";
 import { getStockMap, getInboundInTransitMap } from "@/server/services/inventory";
+import { getPoLineStats } from "@/server/services/purchasing";
 import { getInventoryValue } from "@/server/services/stats";
-import { PageHeader, StatCard, Table, THead, Th, Td, Tr, LinkButton, EmptyState } from "@/components/ui";
-import { formatEur } from "@/lib/money";
-import { formatNumber } from "@/lib/format";
+import { PageHeader, StatCard, Table, THead, Th, Td, Tr, LinkButton, EmptyState, Badge } from "@/components/ui";
+import { formatEur, toEurCents } from "@/lib/money";
+import { formatDate, formatNumber } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Bestand" };
+
+/**
+ * Eingehende Ware: offene Vorbestellungen, die noch nicht (vollständig)
+ * zugestellt sind – bewusst grau dargestellt, weil die Ware noch unterwegs ist.
+ */
+async function IncomingOrders() {
+  const pos = await db.purchaseOrder.findMany({
+    where: { status: { in: ["ORDERED", "CONFIRMED", "PARTIALLY_SHIPPED", "SHIPPED", "PARTIALLY_RECEIVED"] } },
+    include: { supplier: true, lines: { include: { product: true } } },
+    orderBy: { orderedAt: "desc" },
+    take: 30,
+  });
+  if (pos.length === 0) return null;
+
+  const rows: Array<{
+    id: string;
+    number: string;
+    supplierName: string;
+    orderedAt: Date | null;
+    openUnits: number;
+    openValueEur: number;
+    shipped: boolean;
+    products: string;
+  }> = [];
+  for (const po of pos) {
+    const stats = await getPoLineStats(po.id);
+    const openUnits = stats.reduce((a, s) => a + Math.max(0, s.ordered - s.arrived), 0);
+    if (openUnits <= 0) continue;
+    const unitValues = new Map(
+      po.lines.map((l) => [l.id, l.qtyOrdered > 0 ? toEurCents(l.lineTotalCents, po.fxRate) / l.qtyOrdered : 0])
+    );
+    const openValueEur = Math.round(
+      stats.reduce((a, s) => a + Math.max(0, s.ordered - s.arrived) * (unitValues.get(s.poLineId) ?? 0), 0)
+    );
+    rows.push({
+      id: po.id,
+      number: po.supplierOrderNumber ?? po.orderNumber,
+      supplierName: po.supplier.name,
+      orderedAt: po.orderedAt,
+      openUnits,
+      openValueEur,
+      shipped: stats.some((s) => s.shipped > s.arrived),
+      products: po.lines.map((l) => l.product.name).slice(0, 3).join(", ") + (po.lines.length > 3 ? " …" : ""),
+    });
+  }
+  if (rows.length === 0) return null;
+
+  return (
+    <div className="mb-6">
+      <h2 className="mb-2 text-sm font-semibold text-ink-secondary">
+        Eingehende Ware ({rows.length} {rows.length === 1 ? "Bestellung" : "Bestellungen"} unterwegs)
+      </h2>
+      <div className="flex flex-col gap-2">
+        {rows.map((r) => (
+          <Link
+            key={r.id}
+            href={`/purchase-orders/${r.id}`}
+            className="flex flex-wrap items-center justify-between gap-x-6 gap-y-1 rounded-lg border border-dashed border-border bg-canvas/60 px-4 py-2.5 text-sm text-ink-secondary opacity-80 transition-opacity hover:opacity-100"
+          >
+            <span className="min-w-[160px]">
+              <span className="font-medium text-ink">{r.number}</span>
+              <span className="block text-xs text-ink-tertiary">{r.supplierName}</span>
+            </span>
+            <span className="min-w-0 flex-1 truncate text-xs text-ink-tertiary">{r.products}</span>
+            <span className="tnum text-xs">{formatDate(r.orderedAt)}</span>
+            <span className="tnum">{formatNumber(r.openUnits)} Einheiten</span>
+            <span className="tnum font-medium">{formatEur(r.openValueEur)}</span>
+            <Badge tone={r.shipped ? "violet" : "neutral"}>{r.shipped ? "Versendet" : "Bestellt"}</Badge>
+          </Link>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 export default async function InventoryPage({
   searchParams,
@@ -100,6 +175,8 @@ export default async function InventoryPage({
         <StatCard label="Frei verfügbar" value={formatNumber(totalAvailable)} />
         <StatCard label="Unterwegs" value={formatNumber(totalInTransit)} hint="vom Lieferanten versendet" />
       </div>
+
+      <IncomingOrders />
 
       {/* Filter */}
       <form method="get" className="mb-4 flex flex-wrap items-center gap-2">

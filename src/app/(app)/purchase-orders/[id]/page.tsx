@@ -564,10 +564,7 @@ export default async function PurchaseOrderDetailPage({
                       id: po.id,
                       supplierId: po.supplierId,
                       supplierOrderNumber: po.supplierOrderNumber,
-                      currency: po.currency,
-                      fxRate: po.fxRate,
                       orderedAt: po.orderedAt ? po.orderedAt.toISOString() : null,
-                      expectedAt: po.expectedAt ? po.expectedAt.toISOString() : null,
                     }}
                   />
                 </div>

@@ -276,6 +276,35 @@ export async function releaseAllocation(
 }
 
 /** "Unterwegs"-Mengen (vom Lieferanten versendet, noch nicht angekommen) je Produkt. */
+/**
+ * Bestellt, aber noch nicht eingetroffen – je Produkt über alle offenen
+ * Vorbestellungen (inkl. noch nicht versendeter Mengen). Für den
+ * Verkaufs-Picker: „vorbestellt/unterwegs“.
+ */
+export async function getIncomingMap(): Promise<Map<string, number>> {
+  const lines = await db.purchaseOrderLine.findMany({
+    where: {
+      purchaseOrder: {
+        status: { in: ["ORDERED", "CONFIRMED", "PARTIALLY_SHIPPED", "SHIPPED", "PARTIALLY_RECEIVED"] },
+      },
+    },
+    select: { id: true, productId: true, qtyOrdered: true },
+  });
+  const received = await db.goodsReceiptItem.groupBy({
+    by: ["poLineId"],
+    _sum: { qtyReceived: true, qtyDamaged: true },
+  });
+  const receivedByLine = new Map(
+    received.map((r) => [r.poLineId, (r._sum.qtyReceived ?? 0) + (r._sum.qtyDamaged ?? 0)])
+  );
+  const map = new Map<string, number>();
+  for (const l of lines) {
+    const open = Math.max(0, l.qtyOrdered - (receivedByLine.get(l.id) ?? 0));
+    if (open > 0) map.set(l.productId, (map.get(l.productId) ?? 0) + open);
+  }
+  return map;
+}
+
 export async function getInboundInTransitMap(): Promise<Map<string, number>> {
   // versendet je PO-Zeile (Sendungen, die nicht storniert/nur angekündigt sind)
   const shipped = await db.inboundShipmentItem.findMany({

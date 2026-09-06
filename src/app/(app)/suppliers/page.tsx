@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { db } from "@/server/db";
 import { PageHeader, Table, THead, Th, Td, Tr, LinkButton, EmptyState, Badge } from "@/components/ui";
+import { ActionButton } from "@/components/form";
+import { deleteAllSuppliersAction } from "@/server/actions/suppliers";
 import { formatEur, toEurCents } from "@/lib/money";
 import { formatNumber } from "@/lib/format";
 
@@ -56,7 +58,21 @@ export default async function SuppliersPage({
       <PageHeader
         title="Großhändler"
         subtitle={`${suppliers.length} Großhändler`}
-        actions={<LinkButton href="/suppliers/new" variant="primary">Neuer Großhändler</LinkButton>}
+        actions={
+          <div className="flex flex-wrap gap-2">
+            {suppliers.length > 0 && (
+              <ActionButton
+                action={deleteAllSuppliersAction}
+                variant="danger"
+                size="md"
+                confirmMessage="Wirklich ALLE Großhändler entfernen? Händler ohne Bestellungen werden gelöscht, Händler mit Bestellungen archiviert."
+              >
+                Alle löschen
+              </ActionButton>
+            )}
+            <LinkButton href="/suppliers/new" variant="primary">Neuer Großhändler</LinkButton>
+          </div>
+        }
       />
 
       {/* Filter */}

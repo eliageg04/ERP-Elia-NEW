@@ -98,3 +98,41 @@ export async function archiveSupplierAction(_prev: ActionState, formData: FormDa
     });
   });
 }
+
+/**
+ * Aufräum-Aktion (nur Admin): löscht ALLE Großhändler ohne Verknüpfungen
+ * endgültig; Großhändler mit Bestellungen/Rechnungen/Mappings werden
+ * stattdessen archiviert (Datenintegrität bleibt erhalten).
+ */
+export async function deleteAllSuppliersAction(_prev: ActionState, formData: FormData): Promise<ActionState> {
+  return runAction(async () => {
+    const admin = await requireRole("ADMIN");
+    void formData;
+    const suppliers = await db.supplier.findMany({
+      include: {
+        _count: { select: { purchaseOrders: true, productMappings: true, invoices: true } },
+      },
+    });
+    if (suppliers.length === 0) throw new AppError("Es sind keine Großhändler vorhanden.");
+
+    let deleted = 0;
+    let archived = 0;
+    for (const s of suppliers) {
+      const linked = s._count.purchaseOrders + s._count.productMappings + s._count.invoices;
+      if (linked === 0) {
+        await db.supplier.delete({ where: { id: s.id } });
+        deleted++;
+      } else if (s.active) {
+        await db.supplier.update({ where: { id: s.id }, data: { active: false } });
+        archived++;
+      }
+    }
+    await writeAudit({
+      userId: admin.id,
+      entityType: "SUPPLIER",
+      entityId: "ALL",
+      action: "DELETE",
+      comment: `Großhändler-Liste geleert: ${deleted} gelöscht, ${archived} archiviert (mit Verknüpfungen)`,
+    });
+  });
+}

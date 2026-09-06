@@ -70,17 +70,9 @@ export default async function DashboardPage() {
       {/* Einkauf */}
       <section>
         <h2 className="mb-2 text-sm font-semibold text-ink-secondary">Einkauf</h2>
-        <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
-          <StatCard label="Offene Bestellungen" value={formatNumber(data.purchase.openPoCount)} href="/purchase-orders" />
-          <StatCard label="Bestellte Einheiten" value={formatNumber(data.purchase.orderedUnits)} href="/purchase-orders" />
-          <StatCard label="Noch nicht versendet" value={formatNumber(data.purchase.notShippedUnits)} hint="beim Großhändler" />
-          <StatCard label="Im Versand" value={formatNumber(data.purchase.inTransitUnits)} hint="Einheiten unterwegs" />
-          <StatCard
-            label="Teillieferungen"
-            value={formatNumber(data.purchase.partiallyReceivedCount)}
-            tone={data.purchase.partiallyReceivedCount > 0 ? "warn" : "default"}
-            href="/purchase-orders?status=PARTIALLY_RECEIVED"
-          />
+        <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
+          <StatCard label="Offene Vorbestellungen" value={formatNumber(data.purchase.openPoCount)} href="/purchase-orders" />
+          <StatCard label="Einheiten unterwegs" value={formatNumber(data.purchase.inTransitUnits)} hint="vom Großhändler versendet" href="/purchase-orders" />
           <StatCard label="Offener Einkaufswert" value={formatEur(data.purchase.openPurchaseValueCents)} hint="noch nicht eingetroffen" />
         </div>
       </section>
@@ -127,29 +119,7 @@ export default async function DashboardPage() {
             href="/customer-orders?filter=ready"
           />
           <StatCard label="Unterwegs zum Kunden" value={formatNumber(data.sales.inTransitCount)} href="/shipments" />
-          <StatCard
-            label="Offene Zahlungen"
-            value={formatEur(data.sales.openPaymentsCents)}
-            tone={data.sales.openPaymentsCents > 0 ? "warn" : "default"}
-            href="/invoices?filter=open"
-          />
-        </div>
-      </section>
-
-      {/* Finanzen */}
-      <section>
-        <h2 className="mb-2 text-sm font-semibold text-ink-secondary">Finanzen (letzte 30 Tage)</h2>
-        <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
-          <StatCard
-            label="Offene Rechnungen"
-            value={formatNumber(data.finance.openInvoiceCount)}
-            hint={formatEur(data.finance.openInvoiceCents)}
-            href="/invoices?filter=open"
-          />
-          <StatCard label="Bezahlte Rechnungen" value={formatNumber(data.finance.paidInvoiceCount)} href="/invoices?filter=paid" />
-          <StatCard label="Einkaufsvolumen" value={formatEur(data.finance.purchaseVolumeCents)} />
-          <StatCard label="Verkaufsvolumen" value={formatEur(data.finance.salesVolumeCents)} />
-          <StatCard label="Bruttomarge" value={formatPercent(data.finance.grossMarginPct)} hint="auf versendete Ware" href="/reports" />
+          <StatCard label="Bruttomarge (30 Tage)" value={formatPercent(data.finance.grossMarginPct)} hint="auf versendete Ware" href="/reports" />
         </div>
       </section>
     </div>

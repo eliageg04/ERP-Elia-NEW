@@ -1,4 +1,7 @@
 import { db } from "../db";
+import { AppError } from "../errors";
+import { nextNumber } from "../numbering";
+import type { Prisma } from "@prisma/client";
 
 // ============================================================
 // Deterministisches Produktmatching für Importe.
@@ -129,6 +132,33 @@ export async function matchProduct(params: {
     };
   }
   return { productId: null, confidence: 0, method: "Keine Daten", candidates: [] };
+}
+
+/**
+ * Produkt über exakten Namen finden oder neu anlegen (Basiseinheit: Stück).
+ * Für Importe/KI-Erkennung: Neuanlage ist dort der Normalfall.
+ */
+export async function findOrCreateProduct(
+  tx: Prisma.TransactionClient,
+  params: { name: string; ean?: string | null; setName?: string | null }
+) {
+  const name = params.name.trim();
+  if (!name) throw new AppError("Kein Produktname vorhanden – bitte ein Produkt zuordnen.");
+  const existing = await tx.product.findFirst({ where: { name } });
+  if (existing) return existing;
+  const pieceUnit = await tx.unit.findFirst({ where: { code: "PIECE" } });
+  if (!pieceUnit) {
+    throw new AppError("Systemeinheit „Stück“ fehlt – bitte Einstellungen → Einheiten prüfen.");
+  }
+  return tx.product.create({
+    data: {
+      sku: await nextNumber("PRD", tx),
+      name,
+      ean: params.ean?.trim() || null,
+      setName: params.setName?.trim() || null,
+      baseUnitId: pieceUnit.id,
+    },
+  });
 }
 
 /** Bestätigtes Mapping speichern, damit das System dazulernt. */

@@ -54,6 +54,117 @@ export async function createCustomerOrderAction(
   });
 }
 
+/**
+ * Bestellung in EINEM Schritt anlegen: Kunde + angehakte Produkte mit Menge
+ * und VK-Preis. Kein Entwurf – die Bestellung ist sofort bestätigt.
+ * Verfügbarer Bestand wird automatisch reserviert; was noch nicht da ist
+ * (Vorbestellung unterwegs), bleibt als offener Rückstand stehen.
+ */
+export async function createCustomerOrderWithLinesAction(
+  _prev: ActionState,
+  formData: FormData
+): Promise<ActionState> {
+  return runAction(async () => {
+    const user = await requireRole("STAFF");
+    const customerId = str(formData, "customerId");
+    if (!customerId) throw new AppError("Bitte einen Kunden wählen.");
+    const customer = await db.customer.findUnique({ where: { id: customerId } });
+    if (!customer) throw new AppError("Der gewählte Kunde wurde nicht gefunden.");
+
+    // Positionen aus qty_<productId> / price_<productId> einsammeln
+    const rows: Array<{ productId: string; qty: number; unitPriceCents: number }> = [];
+    for (const [key, value] of formData.entries()) {
+      if (!key.startsWith("qty_")) continue;
+      const raw = String(value).trim();
+      if (raw === "") continue;
+      const qty = Math.round(Number(raw.replace(",", ".")));
+      if (!isFinite(qty) || qty <= 0) continue;
+      const productId = key.slice("qty_".length);
+      const priceRaw = String(formData.get(`price_${productId}`) ?? "").trim();
+      const unitPriceCents = priceRaw === "" ? NaN : Math.round(Number(priceRaw));
+      rows.push({ productId, qty, unitPriceCents });
+    }
+    if (rows.length === 0) {
+      throw new AppError("Bitte mindestens ein Produkt mit Menge größer 0 auswählen.");
+    }
+
+    const products = await db.product.findMany({ where: { id: { in: rows.map((r) => r.productId) } } });
+    const productById = new Map(products.map((p) => [p.id, p]));
+    for (const row of rows) {
+      const p = productById.get(row.productId);
+      if (!p) throw new AppError("Ein gewähltes Produkt wurde nicht gefunden.");
+      if (!isFinite(row.unitPriceCents) || row.unitPriceCents < 0) {
+        throw new AppError(`Bitte einen VK-Preis für „${p.name}“ angeben.`);
+      }
+    }
+
+    const orderId = await db.$transaction(
+      async (tx) => {
+        const orderNumber = await nextNumber("SO", tx);
+        const order = await tx.customerOrder.create({
+          data: {
+            orderNumber,
+            customerId,
+            status: "CONFIRMED",
+            orderedAt: optDate(formData, "orderedAt") ?? new Date(),
+          },
+        });
+        let position = 0;
+        let reservedTotal = 0;
+        for (const row of rows) {
+          position += 1;
+          const line = await tx.customerOrderLine.create({
+            data: {
+              customerOrderId: order.id,
+              productId: row.productId,
+              position,
+              qty: row.qty,
+              unitPriceCents: row.unitPriceCents,
+              lineTotalCents: row.qty * row.unitPriceCents,
+            },
+          });
+          // Automatisch reservieren, was frei verfügbar ist (Rest = Rückstand)
+          const stock = await getStock(row.productId, tx);
+          const take = Math.min(row.qty, Math.max(0, stock.available));
+          if (take > 0) {
+            await allocate(tx, {
+              productId: row.productId,
+              orderLineId: line.id,
+              qty: take,
+              userId: user.id,
+            });
+            reservedTotal += take;
+          }
+        }
+        const totalUnits = rows.reduce((a, r) => a + r.qty, 0);
+        await writeAudit(
+          {
+            userId: user.id,
+            entityType: "CUSTOMER_ORDER",
+            entityId: order.id,
+            action: "CREATE",
+            comment: `Bestellung ${orderNumber} für ${customer.name} angelegt (${rows.length} Positionen, ${reservedTotal}/${totalUnits} reserviert)`,
+          },
+          tx
+        );
+        await writeEvent(
+          {
+            type: "CUSTOMER_ORDER_CONFIRMED",
+            entityType: "CUSTOMER_ORDER",
+            entityId: order.id,
+            summary: `Bestellung ${orderNumber} von ${customer.name} (${totalUnits} Einheiten, ${reservedTotal} reserviert)`,
+            userId: user.id,
+          },
+          tx
+        );
+        return order.id;
+      },
+      { timeout: 30_000 }
+    );
+    return { redirect: `/customer-orders/${orderId}` };
+  });
+}
+
 export async function updateCoHeaderAction(
   _prev: ActionState,
   formData: FormData

@@ -6,16 +6,11 @@ import { useState } from "react";
 import {
   LayoutDashboard,
   ShoppingCart,
-  PackageCheck,
   Boxes,
-  ArrowLeftRight,
   Package,
   Users,
   ClipboardList,
   Truck,
-  Receipt,
-  CreditCard,
-  Coins,
   TrendingUp,
   Inbox,
   Settings,
@@ -39,7 +34,6 @@ const NAV: NavGroup[] = [
     items: [
       { href: "/purchase-orders", label: "Vorbestellungen", icon: ShoppingCart },
       { href: "/suppliers", label: "Großhändler", icon: Building2 },
-      { href: "/goods-receipts", label: "Wareneingang", icon: PackageCheck },
     ],
   },
   {
@@ -47,7 +41,6 @@ const NAV: NavGroup[] = [
     items: [
       { href: "/products", label: "Produkte", icon: Package },
       { href: "/inventory", label: "Bestand", icon: Boxes },
-      { href: "/inventory/movements", label: "Bewegungen", icon: ArrowLeftRight },
     ],
   },
   {
@@ -56,14 +49,6 @@ const NAV: NavGroup[] = [
       { href: "/customers", label: "Kunden", icon: Users },
       { href: "/customer-orders", label: "Bestellungen", icon: ClipboardList },
       { href: "/shipments", label: "Versand", icon: Truck },
-    ],
-  },
-  {
-    title: "Finanzen",
-    items: [
-      { href: "/invoices", label: "Rechnungen", icon: Receipt },
-      { href: "/payments", label: "Zahlungen", icon: CreditCard },
-      { href: "/costs", label: "Kosten", icon: Coins },
       { href: "/reports", label: "Margen & Reports", icon: TrendingUp },
     ],
   },
