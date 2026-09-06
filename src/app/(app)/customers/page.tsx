@@ -56,7 +56,12 @@ export default async function CustomersPage({
       <PageHeader
         title="Kunden"
         subtitle={`${customers.length} Kunden`}
-        actions={<LinkButton href="/customers/new" variant="primary">Neuer Kunde</LinkButton>}
+        actions={
+          <div className="flex flex-wrap gap-2">
+            <LinkButton href="/customers/map">🌍 Weltkarte</LinkButton>
+            <LinkButton href="/customers/new" variant="primary">Neuer Kunde</LinkButton>
+          </div>
+        }
       />
 
       {/* Filter */}
