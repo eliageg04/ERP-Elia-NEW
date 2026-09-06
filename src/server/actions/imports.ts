@@ -333,7 +333,11 @@ async function acceptSingleItem(
 
   if (batch.kind === "CUSTOMERS") {
     if (!contactName) throw new AppError("Kein Kundenname in dieser Zeile erkennbar.");
-    const existing = await tx.customer.findFirst({ where: { name: contactName } });
+    let existing = await tx.customer.findFirst({ where: { name: contactName } });
+    if (existing && !existing.active) {
+      // Archivierte Kunden beim Re-Import wieder sichtbar machen
+      existing = await tx.customer.update({ where: { id: existing.id }, data: { active: true } });
+    }
     const customer =
       existing ??
       (await tx.customer.create({
@@ -360,7 +364,11 @@ async function acceptSingleItem(
       : `Kunde „${contactName}“ angelegt`;
   } else if (batch.kind === "SUPPLIERS") {
     if (!contactName) throw new AppError("Kein Lieferantenname in dieser Zeile erkennbar.");
-    const existing = await tx.supplier.findFirst({ where: { name: contactName } });
+    let existing = await tx.supplier.findFirst({ where: { name: contactName } });
+    if (existing && !existing.active) {
+      // Archivierte Lieferanten beim Re-Import wieder sichtbar machen
+      existing = await tx.supplier.update({ where: { id: existing.id }, data: { active: true } });
+    }
     const supplier =
       existing ??
       (await tx.supplier.create({
