@@ -38,10 +38,11 @@ export default async function SuppliersPage({
   });
 
   // Bestellanzahl + Einkaufsvolumen (EUR) aller gelisteten Händler in EINER Query (kein N+1).
+  // Auch Entwürfe zählen mit: der Betrag erscheint sofort beim Anlegen der Vorbestellung.
   const orders = await db.purchaseOrder.findMany({
     where: {
       supplierId: { in: suppliers.map((s) => s.id) },
-      status: { notIn: ["DRAFT", "CANCELLED"] },
+      status: { not: "CANCELLED" },
     },
     select: { supplierId: true, fxRate: true, lines: { select: { lineTotalCents: true } } },
   });
@@ -107,7 +108,8 @@ export default async function SuppliersPage({
               <Th>Kontakt</Th>
               <Th>Währung</Th>
               <Th align="right">Bestellungen</Th>
-              <Th align="right">Einkaufsvolumen</Th>
+              <Th align="right">Einkauf netto</Th>
+              <Th align="right">Einkauf brutto</Th>
             </tr>
           </THead>
           <tbody>
@@ -138,6 +140,12 @@ export default async function SuppliersPage({
                         davon Alt-Daten: {formatEur(s.legacyVolumeCents)}
                       </span>
                     )}
+                  </Td>
+                  <Td align="right" className="text-ink-secondary">
+                    {/* Brutto: deutsche Lieferanten +19 % USt; EU/Drittland reverse charge = netto */}
+                    {totalVolume > 0
+                      ? formatEur((s.country ?? "DE") === "DE" ? Math.round(totalVolume * 1.19) : totalVolume)
+                      : "–"}
                   </Td>
                 </Tr>
               );
