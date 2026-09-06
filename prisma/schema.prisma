@@ -72,6 +72,7 @@ model Supplier {
   currency       String   @default("EUR") // Standardwährung des Lieferanten
   paymentTerms   String? // z.B. "Vorkasse", "30 Tage netto"
   customerNumber String? // unsere Kundennummer beim Großhändler
+  legacyVolumeCents Int  @default(0) // Einkaufsvolumen aus Alt-Daten (Lexware), rein informativ
   active         Boolean  @default(true)
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt

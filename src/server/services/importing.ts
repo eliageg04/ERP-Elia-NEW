@@ -65,6 +65,7 @@ const COLUMN_ALIASES: Record<string, string[]> = {
   zip: ["plz", "zip", "postleitzahl"],
   city: ["ort", "stadt", "city"],
   country: ["land", "country", "länderkennzeichen"],
+  legacyVolume: ["einkauf 2026 netto (info)", "einkaufsvolumen", "einkauf netto", "alt-umsatz", "altumsatz"],
 };
 
 export function mapColumns(row: ParsedRow): Record<string, string> {
@@ -117,13 +118,18 @@ export async function createImportBatch(params: {
   userId?: string | null;
 }) {
   const hash = sha256(params.content);
-  const existing = await db.importBatch.findFirst({
-    where: { contentHash: hash, status: { not: "DISCARDED" } },
-  });
-  if (existing) {
-    throw new AppError(
-      `Diese Datei wurde bereits importiert (${existing.createdAt.toLocaleDateString("de-DE")}). Duplikat verhindert.`
-    );
+  // Kontakt-/Produktlisten dürfen erneut importiert werden (idempotent über Namen);
+  // für Rechnungen/Bestände bleibt der Duplikatschutz aktiv.
+  const reimportErlaubt = ["SUPPLIERS", "CUSTOMERS", "PRODUCTS"].includes(params.kind);
+  if (!reimportErlaubt) {
+    const existing = await db.importBatch.findFirst({
+      where: { contentHash: hash, status: { not: "DISCARDED" } },
+    });
+    if (existing) {
+      throw new AppError(
+        `Diese Datei wurde bereits importiert (${existing.createdAt.toLocaleDateString("de-DE")}). Duplikat verhindert.`
+      );
+    }
   }
 
   const rows =

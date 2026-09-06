@@ -113,6 +113,7 @@ export default async function SuppliersPage({
           <tbody>
             {suppliers.map((s) => {
               const stats = statsMap.get(s.id);
+              const totalVolume = (stats?.volumeEurCents ?? 0) + s.legacyVolumeCents;
               return (
                 <Tr key={s.id} muted={!s.active}>
                   <Td>
@@ -131,7 +132,12 @@ export default async function SuppliersPage({
                   <Td><Badge>{s.currency}</Badge></Td>
                   <Td align="right">{stats ? formatNumber(stats.orderCount) : "–"}</Td>
                   <Td align="right" className="font-medium">
-                    {stats ? formatEur(stats.volumeEurCents) : "–"}
+                    {totalVolume > 0 ? formatEur(totalVolume) : "–"}
+                    {s.legacyVolumeCents > 0 && (
+                      <span className="block text-xs font-normal text-ink-tertiary">
+                        davon Alt-Daten: {formatEur(s.legacyVolumeCents)}
+                      </span>
+                    )}
                   </Td>
                 </Tr>
               );

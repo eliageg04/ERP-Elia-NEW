@@ -5,7 +5,7 @@ import { requireRole } from "../auth";
 import { AppError } from "../errors";
 import { writeAudit, writeEvent } from "../audit";
 import { nextNumber } from "../numbering";
-import { createImportBatch, sha256 } from "../services/importing";
+import { createImportBatch, sha256, parseMoneyToCents } from "../services/importing";
 import { learnSupplierMapping, matchProduct, similarity } from "../services/matching";
 import { extractInvoiceFromPdf } from "../services/pdf-extract";
 import { uploadVoucherToLexware, getLexwareConfig } from "../services/lexware";
@@ -364,10 +364,22 @@ async function acceptSingleItem(
       : `Kunde „${contactName}“ angelegt`;
   } else if (batch.kind === "SUPPLIERS") {
     if (!contactName) throw new AppError("Kein Lieferantenname in dieser Zeile erkennbar.");
+    const legacyVolumeCents = parseMoneyToCents(field("legacyVolume"));
     let existing = await tx.supplier.findFirst({ where: { name: contactName } });
-    if (existing && !existing.active) {
-      // Archivierte Lieferanten beim Re-Import wieder sichtbar machen
-      existing = await tx.supplier.update({ where: { id: existing.id }, data: { active: true } });
+    if (existing) {
+      // Re-Import: reaktivieren und fehlende Daten ergänzen (ohne vorhandene zu überschreiben)
+      existing = await tx.supplier.update({
+        where: { id: existing.id },
+        data: {
+          active: true,
+          email: existing.email ?? field("email"),
+          phone: existing.phone ?? field("phone"),
+          street: existing.street ?? field("street"),
+          zip: existing.zip ?? field("zip"),
+          city: existing.city ?? field("city"),
+          ...(legacyVolumeCents !== null ? { legacyVolumeCents } : {}),
+        },
+      });
     }
     const supplier =
       existing ??
@@ -381,6 +393,7 @@ async function acceptSingleItem(
           zip: field("zip"),
           city: field("city"),
           country: field("country") ?? undefined,
+          legacyVolumeCents: legacyVolumeCents ?? 0,
         },
       }));
     resultRefType = "SUPPLIER";
