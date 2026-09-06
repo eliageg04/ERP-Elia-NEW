@@ -21,22 +21,22 @@
   --color-ink-secondary: rgba(237, 234, 227, 0.65);
   --color-ink-tertiary: rgba(237, 234, 227, 0.4);
 
-  /* Akzent: Creme statt Blau – ruhig und edel */
-  --color-accent: #e4dfd4;
-  --color-accent-hover: #f4efe4;
-  --color-accent-soft: rgba(228, 223, 212, 0.1);
+  /* Akzent: sanftes Himmelblau (Apple-Anmutung) für Links & aktive Zustände */
+  --color-accent: #6ea8fe;
+  --color-accent-hover: #8dbbff;
+  --color-accent-soft: rgba(110, 168, 254, 0.13);
 
-  /* Statusfarben: erdig und stark gedämpft, nur für Badges */
-  --color-ok: #a8c5a1; /* Salbeigrün */
-  --color-ok-soft: rgba(168, 197, 161, 0.13);
-  --color-warn: #d6bb93; /* warmer Sand */
-  --color-warn-soft: rgba(214, 187, 147, 0.13);
-  --color-danger: #d69a94; /* gedämpfter Ton */
-  --color-danger-soft: rgba(214, 154, 148, 0.13);
-  --color-info: #aebdc9; /* blaugrauer Nebel */
-  --color-info-soft: rgba(174, 189, 201, 0.12);
-  --color-violet: #b8aac4; /* zartes Taupe-Mauve */
-  --color-violet-soft: rgba(184, 170, 196, 0.12);
+  /* Statusfarben: weich und pastellig – Farbe ja, grell nein */
+  --color-ok: #9fd19a; /* frisches Salbeigrün */
+  --color-ok-soft: rgba(159, 209, 154, 0.14);
+  --color-warn: #dcb888; /* warmer Sand */
+  --color-warn-soft: rgba(220, 184, 136, 0.14);
+  --color-danger: #e29a92; /* weicher Terrakotta-Ton */
+  --color-danger-soft: rgba(226, 154, 146, 0.14);
+  --color-info: #8ab4f8; /* Himmelblau */
+  --color-info-soft: rgba(138, 180, 248, 0.14);
+  --color-violet: #ab9df2; /* zartes Lavendel */
+  --color-violet-soft: rgba(171, 157, 242, 0.13);
 
   /* Deutlich rundere, organische Formen */
   --radius-md: 0.75rem;
@@ -53,10 +53,11 @@ html {
 body {
   @apply bg-canvas text-ink;
   font-feature-settings: "tnum" 1, "cv03" 1;
-  /* Zwei sehr sanfte, warme Lichtflächen – wirkt organisch statt flach */
+  /* Sanfte Aurora: weiches Blau-Violett von oben, warmes Grün von unten */
   background-image:
-    radial-gradient(1000px 600px at 85% -10%, rgba(228, 223, 212, 0.05), transparent 60%),
-    radial-gradient(900px 600px at -10% 110%, rgba(168, 197, 161, 0.04), transparent 60%);
+    radial-gradient(900px 480px at 50% -12%, rgba(110, 168, 254, 0.13), transparent 65%),
+    radial-gradient(700px 420px at 85% -8%, rgba(171, 157, 242, 0.08), transparent 60%),
+    radial-gradient(900px 600px at -10% 112%, rgba(159, 209, 154, 0.05), transparent 60%);
   background-attachment: fixed;
 }
 
@@ -80,9 +81,9 @@ textarea {
     box-shadow 180ms ease;
 }
 
-/* Textauswahl im warmen Ton */
+/* Textauswahl im Akzentton */
 ::selection {
-  background: rgba(228, 223, 212, 0.28);
+  background: rgba(110, 168, 254, 0.3);
 }
 
 /* Native Controls (Datumswähler etc.) im Dark-Stil */

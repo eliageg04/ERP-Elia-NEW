@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   LayoutDashboard,
   ShoppingCart,
@@ -109,7 +110,7 @@ export function Sidebar() {
   return (
     <aside className="sticky top-0 hidden h-screen w-56 shrink-0 overflow-y-auto border-r border-border bg-surface/70 backdrop-blur-xl lg:block">
       <Link href="/" className="flex items-center gap-2 px-5 py-4 transition-opacity hover:opacity-80">
-        <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-accent text-sm font-bold text-canvas">
+        <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-gradient-to-br from-[#6ea8fe] to-[#8b7cf6] text-sm font-bold text-white">
           E
         </div>
         <span className="text-sm font-semibold tracking-tight">Elia ERP</span>
@@ -121,6 +122,8 @@ export function Sidebar() {
 
 export function MobileNav() {
   const [open, setOpen] = useState(false);
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
   return (
     <div className="lg:hidden">
       <button
@@ -130,20 +133,33 @@ export function MobileNav() {
       >
         <Menu className="h-4 w-4" />
       </button>
-      {open && (
-        <div className="fixed inset-0 z-50 flex">
-          <div className="w-64 overflow-y-auto border-r border-border bg-surface">
-            <div className="flex items-center justify-between px-5 py-4">
-              <span className="text-sm font-semibold">Elia ERP</span>
-              <button onClick={() => setOpen(false)} aria-label="Menü schließen">
-                <X className="h-4 w-4" />
-              </button>
+      {/* Portal in den Body: der Header hat backdrop-blur und würde sonst
+          zum Bezugsrahmen für position:fixed – das Menü klebte dann in der
+          Kopfleiste statt die volle Höhe einzunehmen. */}
+      {open &&
+        mounted &&
+        createPortal(
+          <div className="fixed inset-0 z-50">
+            <div
+              className="absolute inset-0 bg-black/50 backdrop-blur-sm"
+              onClick={() => setOpen(false)}
+            />
+            <div className="absolute inset-y-0 left-0 flex w-72 flex-col overflow-y-auto border-r border-border bg-surface shadow-2xl">
+              <div className="flex items-center justify-between px-5 py-4">
+                <span className="text-sm font-semibold">Elia ERP</span>
+                <button
+                  onClick={() => setOpen(false)}
+                  aria-label="Menü schließen"
+                  className="flex h-8 w-8 items-center justify-center rounded-full text-ink-secondary hover:bg-canvas hover:text-ink"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+              <NavLinks onNavigate={() => setOpen(false)} />
             </div>
-            <NavLinks onNavigate={() => setOpen(false)} />
-          </div>
-          <div className="flex-1 bg-black/30" onClick={() => setOpen(false)} />
-        </div>
-      )}
+          </div>,
+          document.body
+        )}
     </div>
   );
 }

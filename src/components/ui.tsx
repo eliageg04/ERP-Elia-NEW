@@ -279,7 +279,7 @@ export function QtyProgress({
 // ---------- Buttons (Link-Varianten; Form-Buttons in form.tsx) ----------
 
 const BUTTON_STYLES = {
-  primary: "bg-accent text-canvas hover:bg-accent-hover border-transparent",
+  primary: "bg-ink text-canvas hover:bg-white border-transparent",
   secondary: "bg-surface text-ink border-border-strong hover:bg-canvas",
   ghost: "bg-transparent text-ink-secondary border-transparent hover:bg-canvas hover:text-ink",
   danger: "bg-surface text-danger border-danger/40 hover:bg-danger-soft",

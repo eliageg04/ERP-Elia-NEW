@@ -92,6 +92,7 @@ export default async function CustomersPage({
               <Th>E-Mail</Th>
               <Th align="right">Bestellungen</Th>
               <Th align="right">Umsatz</Th>
+              <Th> </Th>
             </tr>
           </THead>
           <tbody>
@@ -113,6 +114,14 @@ export default async function CustomersPage({
                   <Td align="right">{stats ? formatNumber(stats.orderCount) : "–"}</Td>
                   <Td align="right" className="font-medium">
                     {stats ? formatEur(stats.revenueCents) : "–"}
+                  </Td>
+                  <Td align="right">
+                    <Link
+                      href={`/customers/${c.id}/edit`}
+                      className="text-xs font-medium text-ink-tertiary hover:text-accent"
+                    >
+                      Bearbeiten
+                    </Link>
                   </Td>
                 </Tr>
               );
