@@ -5,8 +5,13 @@
  * - legt Grundeinstellungen an, falls sie fehlen
  * - legt einen Admin an, falls noch KEIN Benutzer existiert
  *   (ADMIN_EMAIL / ADMIN_PASSWORD / ADMIN_NAME aus den Umgebungsvariablen)
+ * - Notfall-Passwort-Reset: Ist ADMIN_PASSWORD_RESET=true gesetzt, wird das
+ *   Passwort des Benutzers ADMIN_EMAIL beim Deployment auf ADMIN_PASSWORD
+ *   gesetzt (Zugriff auf die Vercel-Umgebungsvariablen ist der Nachweis).
+ *   Die Variable danach wieder entfernen, sonst setzt JEDES Deployment
+ *   das Passwort erneut zurück.
  *
- * Bestehende Daten werden niemals verändert oder gelöscht.
+ * Bestehende Daten werden sonst niemals verändert oder gelöscht.
  */
 import bcrypt from "bcryptjs";
 import { db } from "../src/server/db";
@@ -65,6 +70,40 @@ async function main() {
     }
   } else {
     console.log(`Benutzer vorhanden (${userCount}) – kein neuer Admin angelegt.`);
+  }
+
+  // Notfall-Reset: nur aktiv, wenn die Variable explizit gesetzt ist
+  if (process.env.ADMIN_PASSWORD_RESET === "true") {
+    const email = (process.env.ADMIN_EMAIL ?? "").toLowerCase().trim();
+    const password = process.env.ADMIN_PASSWORD ?? "";
+    if (!email || password.length < 8) {
+      console.error(
+        "ADMIN_PASSWORD_RESET=true gesetzt, aber ADMIN_EMAIL fehlt oder ADMIN_PASSWORD hat weniger als 8 Zeichen – Reset übersprungen."
+      );
+    } else {
+      const passwordHash = await bcrypt.hash(password, 10);
+      const existing = await db.user.findUnique({ where: { email } });
+      const user = existing
+        ? await db.user.update({ where: { email }, data: { passwordHash, active: true } })
+        : await db.user.create({
+            data: { email, name: process.env.ADMIN_NAME ?? "Admin", passwordHash, role: "ADMIN" },
+          });
+      // Alle Sitzungen dieses Benutzers beenden (Reset macht alte Logins ungültig)
+      await db.session.deleteMany({ where: { userId: user.id } });
+      await db.auditLog.create({
+        data: {
+          entityType: "USER",
+          entityId: user.id,
+          action: "UPDATE",
+          comment: existing
+            ? "Passwort per Deployment-Reset (ADMIN_PASSWORD_RESET) zurückgesetzt"
+            : "Admin per Deployment-Reset (ADMIN_PASSWORD_RESET) neu angelegt",
+        },
+      });
+      console.log(
+        `Passwort-Reset ausgeführt für ${email}. WICHTIG: Die Variable ADMIN_PASSWORD_RESET jetzt in Vercel wieder löschen!`
+      );
+    }
   }
   console.log("Grundeinrichtung abgeschlossen.");
 }
