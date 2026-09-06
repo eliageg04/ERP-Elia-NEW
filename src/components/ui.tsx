@@ -49,7 +49,12 @@ export function Card({
   actions?: React.ReactNode;
 }) {
   return (
-    <section className={cn("rounded-lg border border-border bg-surface", className)}>
+    <section
+      className={cn(
+        "rounded-xl border border-border bg-surface shadow-[0_1px_0_rgba(255,255,255,0.04)_inset,0_8px_24px_rgba(0,0,0,0.25)]",
+        className
+      )}
+    >
       {(title || actions) && (
         <header className="flex items-center justify-between gap-2 border-b border-border px-4 py-2.5">
           <h2 className="text-sm font-medium text-ink">{title}</h2>
@@ -130,7 +135,12 @@ export function StatusBadge({ status }: { status: string }) {
 
 export function Table({ children, className }: { children: React.ReactNode; className?: string }) {
   return (
-    <div className={cn("overflow-x-auto rounded-lg border border-border bg-surface", className)}>
+    <div
+      className={cn(
+        "overflow-x-auto rounded-xl border border-border bg-surface shadow-[0_1px_0_rgba(255,255,255,0.04)_inset,0_8px_24px_rgba(0,0,0,0.25)]",
+        className
+      )}
+    >
       <table className="w-full text-sm">{children}</table>
     </div>
   );
@@ -269,7 +279,7 @@ export function QtyProgress({
 // ---------- Buttons (Link-Varianten; Form-Buttons in form.tsx) ----------
 
 const BUTTON_STYLES = {
-  primary: "bg-accent text-white hover:bg-accent-hover border-transparent",
+  primary: "bg-accent text-white hover:bg-accent-hover border-transparent shadow-[0_0_16px_rgba(10,132,255,0.25)]",
   secondary: "bg-surface text-ink border-border-strong hover:bg-canvas",
   ghost: "bg-transparent text-ink-secondary border-transparent hover:bg-canvas hover:text-ink",
   danger: "bg-surface text-danger border-danger/40 hover:bg-danger-soft",

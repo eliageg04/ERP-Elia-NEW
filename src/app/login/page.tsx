@@ -12,7 +12,7 @@ export default async function LoginPage() {
     <main className="flex min-h-screen items-center justify-center bg-canvas px-4">
       <div className="w-full max-w-sm">
         <div className="mb-6 flex items-center justify-center gap-2">
-          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-ink text-base font-bold text-white">
+          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-accent text-base font-bold text-white shadow-[0_0_24px_rgba(10,132,255,0.4)]">
             E
           </div>
           <span className="text-lg font-semibold tracking-tight">Elia ERP</span>
