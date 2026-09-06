@@ -37,6 +37,12 @@ async function main() {
   const settings: Array<[string, unknown]> = [
     ["defaultCurrency", "EUR"],
     ["targetMarginPct", 25],
+    // Vorläufiges Jahresergebnis aus der Lexware-GuV (Stand 06.09.2026);
+    // wird nur angelegt, falls noch nicht vorhanden – editierbar unter Reports.
+    [
+      "vorlaeufigesErgebnis",
+      { umsatzCents: 528781085, wareneinkaufCents: 445401427, betriebsergebnisCents: 72901242, stand: "2026-09-06" },
+    ],
   ];
   for (const [key, value] of settings) {
     await db.setting.upsert({

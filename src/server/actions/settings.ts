@@ -219,3 +219,38 @@ export async function deleteMappingAction(_prev: ActionState, formData: FormData
     });
   });
 }
+
+/**
+ * Vorläufiges Jahresergebnis (aus der Lexware-GuV) speichern – wird auf
+ * der Margen-&-Reports-Seite angezeigt und bei jeder neuen GuV aktualisiert.
+ */
+export async function saveVorlaeufigesErgebnisAction(_prev: ActionState, formData: FormData): Promise<ActionState> {
+  return runAction(async () => {
+    const user = await requireRole("ADMIN");
+    const umsatzCents = Math.round(optNum(formData, "umsatzCents") ?? 0);
+    const wareneinkaufCents = Math.round(optNum(formData, "wareneinkaufCents") ?? 0);
+    const betriebsergebnisCents = optNum(formData, "betriebsergebnisCents");
+    const stand = str(formData, "stand");
+    if (umsatzCents <= 0 || wareneinkaufCents <= 0) {
+      throw new AppError("Bitte Umsatz und Wareneinkauf angeben (aus der Lexware-GuV).");
+    }
+    const value = JSON.stringify({
+      umsatzCents,
+      wareneinkaufCents,
+      betriebsergebnisCents: betriebsergebnisCents !== null ? Math.round(betriebsergebnisCents) : null,
+      stand: stand || new Date().toISOString().slice(0, 10),
+    });
+    await db.setting.upsert({
+      where: { key: "vorlaeufigesErgebnis" },
+      create: { key: "vorlaeufigesErgebnis", value },
+      update: { value },
+    });
+    await writeAudit({
+      userId: user.id,
+      entityType: "SETTING",
+      entityId: "vorlaeufigesErgebnis",
+      action: "UPDATE",
+      comment: "Vorläufiges Jahresergebnis (Lexware-GuV) aktualisiert",
+    });
+  });
+}

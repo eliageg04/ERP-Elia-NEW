@@ -1,9 +1,10 @@
 import Link from "next/link";
 import { db } from "@/server/db";
 import { getPurchasePriceStats, getInventoryValue } from "@/server/services/stats";
-import { PageHeader, Card, Table, THead, Th, Td, Tr } from "@/components/ui";
+import { PageHeader, Card, StatCard, Table, THead, Th, Td, Tr } from "@/components/ui";
 import { formatEur, formatPercent, toEurCents } from "@/lib/money";
-import { formatNumber } from "@/lib/format";
+import { formatNumber, formatDate } from "@/lib/format";
+import { VorlaeufigesErgebnisForm } from "./vorlaeufiges-ergebnis";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Margen & Reports" };
@@ -128,9 +129,54 @@ export default async function ReportsPage({
     </a>
   );
 
+  // Vorläufiges Jahresergebnis (aus der Lexware-GuV, manuell gepflegt)
+  const guvSetting = await db.setting.findUnique({ where: { key: "vorlaeufigesErgebnis" } });
+  let guv: { umsatzCents: number; wareneinkaufCents: number; betriebsergebnisCents: number | null; stand: string | null } | null = null;
+  if (guvSetting) {
+    try {
+      const parsed = JSON.parse(guvSetting.value);
+      if (typeof parsed?.umsatzCents === "number" && typeof parsed?.wareneinkaufCents === "number") {
+        guv = {
+          umsatzCents: parsed.umsatzCents,
+          wareneinkaufCents: parsed.wareneinkaufCents,
+          betriebsergebnisCents: typeof parsed.betriebsergebnisCents === "number" ? parsed.betriebsergebnisCents : null,
+          stand: typeof parsed.stand === "string" ? parsed.stand : null,
+        };
+      }
+    } catch {
+      // ungültige Einstellung ignorieren
+    }
+  }
+  const rohertrag = guv ? guv.umsatzCents - guv.wareneinkaufCents : 0;
+
   return (
     <div className="flex flex-col gap-6">
       <PageHeader title="Margen & Reports" subtitle="Auswertungen auf Basis tatsächlich versendeter Ware (eingefrorene FIFO-Einkaufskosten)" />
+
+      {guv && (
+        <Card
+          title={`Vorläufiges Jahresergebnis 2026 – aus der Lexware-GuV${guv.stand ? ` (Stand ${formatDate(new Date(guv.stand))})` : ""}`}
+        >
+          <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
+            <StatCard label="Umsatzerlöse" value={formatEur(guv.umsatzCents)} />
+            <StatCard label="Wareneinkauf" value={formatEur(guv.wareneinkaufCents)} hint="Wareneingang + EU-Erwerb" />
+            <StatCard label="Rohertrag" value={formatEur(rohertrag)} hint="reiner Warenein-/verkauf" />
+            <StatCard label="Marge" value={formatPercent(guv.umsatzCents > 0 ? (rohertrag / guv.umsatzCents) * 100 : 0)} hint="Gewinn / VK" />
+            <StatCard label="Aufschlag" value={formatPercent(guv.wareneinkaufCents > 0 ? (rohertrag / guv.wareneinkaufCents) * 100 : 0)} hint="Gewinn / EK" />
+            <StatCard label="Betriebsergebnis" value={guv.betriebsergebnisCents !== null ? formatEur(guv.betriebsergebnisCents) : "–"} hint="lt. Lexware, alle Kosten" />
+          </div>
+          <p className="mt-3 text-xs text-ink-tertiary">
+            Hinweis: Der Wareneinkauf zählt hier auch Ware, die noch im Lager liegt – der echte Deckungsbeitrag
+            pro Verkauf steht in den Auswertungen unten (FIFO-basiert).
+          </p>
+          <VorlaeufigesErgebnisForm
+            umsatzCents={guv.umsatzCents}
+            wareneinkaufCents={guv.wareneinkaufCents}
+            betriebsergebnisCents={guv.betriebsergebnisCents}
+            stand={guv.stand}
+          />
+        </Card>
+      )}
 
       <form method="get" className="flex flex-wrap items-end gap-2">
         <label className="text-sm">
