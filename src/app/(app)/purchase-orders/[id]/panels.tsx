@@ -41,7 +41,7 @@ type ProductOption = {
   conversions: Array<{ unitId: string; factor: number }>;
 };
 
-/** Neue Bestellzeile: Einheit + Faktor werden aus den Produktdaten vorgeschlagen, sind aber überschreibbar. */
+/** Neue Bestellzeile – bewusst schlank: Produkt, Menge, EK. (1 Einheit = 1 Case/Box) */
 export function AddPoLineForm({
   purchaseOrderId,
   products,
@@ -53,115 +53,39 @@ export function AddPoLineForm({
   units: Array<{ id: string; name: string }>;
   currency: string;
 }) {
+  void units;
+  void currency;
   const [productId, setProductId] = useState("");
-  const [unitId, setUnitId] = useState("");
-  const [factor, setFactor] = useState("");
-
   const product = products.find((p) => p.id === productId);
-  const convMap = new Map((product?.conversions ?? []).map((c) => [c.unitId, c.factor]));
-
-  function suggestFactor(p: ProductOption | undefined, uid: string): string {
-    if (!p || !uid) return "";
-    if (uid === p.baseUnitId) return "1";
-    const conv = p.conversions.find((c) => c.unitId === uid);
-    return conv ? String(conv.factor) : "";
-  }
-
-  // Einheiten sortiert: Basiseinheit, dann Einheiten mit Umrechnung, dann alle übrigen
-  const unitOptions: Array<{ id: string; name: string; note: string }> = product
-    ? [
-        ...units
-          .filter((u) => u.id === product.baseUnitId)
-          .map((u) => ({ id: u.id, name: u.name, note: " (Basiseinheit)" })),
-        ...units
-          .filter((u) => u.id !== product.baseUnitId && convMap.has(u.id))
-          .map((u) => ({
-            id: u.id,
-            name: u.name,
-            note: ` (= ${convMap.get(u.id)} ${product.baseUnitName})`,
-          })),
-        ...units
-          .filter((u) => u.id !== product.baseUnitId && !convMap.has(u.id))
-          .map((u) => ({ id: u.id, name: u.name, note: "" })),
-      ]
-    : units.map((u) => ({ id: u.id, name: u.name, note: "" }));
-
-  const manualFactorNeeded =
-    Boolean(product && unitId) && unitId !== product?.baseUnitId && !convMap.has(unitId);
 
   return (
     <Card title="Position hinzufügen">
       <ActionForm action={addPoLineAction} resetOnSuccess className="flex flex-col gap-3">
         <input type="hidden" name="purchaseOrderId" value={purchaseOrderId} />
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-6">
+        {/* Einheit fix: Basiseinheit des Produkts, Faktor 1 (alles wird als Case/Box je 1 geführt) */}
+        <input type="hidden" name="enteredUnitId" value={product?.baseUnitId ?? ""} />
+        <input type="hidden" name="unitFactor" value="1" />
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
           <Field label="Produkt" required className="sm:col-span-2 lg:col-span-3">
             <Select
               name="productId"
               required
               value={productId}
-              onChange={(e) => {
-                const p = products.find((x) => x.id === e.target.value);
-                setProductId(e.target.value);
-                setUnitId(p?.baseUnitId ?? "");
-                setFactor(p ? "1" : "");
-              }}
+              onChange={(e) => setProductId(e.target.value)}
             >
               <option value="">– wählen –</option>
               {products.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name} ({p.sku})
-                </option>
+                <option key={p.id} value={p.id}>{p.name}</option>
               ))}
             </Select>
           </Field>
           <Field label="Menge" required>
-            <Input type="number" name="enteredQty" min={1} required placeholder="12" />
+            <Input type="number" name="enteredQty" min={1} required placeholder="z.B. 3" />
           </Field>
-          <Field label="Einheit" required className="lg:col-span-2">
-            <Select
-              name="enteredUnitId"
-              required
-              value={unitId}
-              onChange={(e) => {
-                setUnitId(e.target.value);
-                setFactor(suggestFactor(product, e.target.value));
-              }}
-            >
-              <option value="">– wählen –</option>
-              {unitOptions.map((u) => (
-                <option key={u.id} value={u.id}>
-                  {u.name}
-                  {u.note}
-                </option>
-              ))}
-            </Select>
+          <Field label="EK je Einheit" required>
+            <MoneyInput name="unitPriceCents" required placeholder="z.B. 3992,00" />
           </Field>
-          <Field
-            label="Faktor"
-            required
-            hint={
-              manualFactorNeeded
-                ? "Keine Umrechnung hinterlegt – Faktor bitte manuell angeben."
-                : `Basiseinheiten je Einheit${product ? ` (${product.baseUnitName})` : ""}`
-            }
-          >
-            <Input
-              type="number"
-              name="unitFactor"
-              min={1}
-              required
-              value={factor}
-              onChange={(e) => setFactor(e.target.value)}
-              placeholder="z.B. 6"
-            />
-          </Field>
-          <Field label={`Preis je Einheit (${currency})`} required>
-            <MoneyInput name="unitPriceCents" required />
-          </Field>
-          <Field label={`Rabatt auf Zeile (${currency})`}>
-            <MoneyInput name="discountCents" />
-          </Field>
-          <div className="flex items-end lg:col-span-3">
+          <div className="flex items-end lg:col-span-5">
             <SubmitButton size="md">Position hinzufügen</SubmitButton>
           </div>
         </div>
@@ -214,18 +138,14 @@ export function PoLineEditor({
       className="min-w-[260px] rounded-md border border-border bg-canvas/60 p-3 text-left"
     >
       <input type="hidden" name="lineId" value={line.id} />
+      <input type="hidden" name="unitFactor" value={line.unitFactor} />
+      <input type="hidden" name="discountCents" value={line.discountCents} />
       <div className="grid grid-cols-2 gap-2">
         <Field label={`Menge (${line.unitName})`} required>
           <Input type="number" name="enteredQty" min={1} defaultValue={line.enteredQty} required />
         </Field>
-        <Field label="Faktor" required hint="Basiseinheiten je Einheit">
-          <Input type="number" name="unitFactor" min={1} defaultValue={line.unitFactor} required />
-        </Field>
-        <Field label="Preis je Einheit">
+        <Field label="EK je Einheit">
           <MoneyInput name="unitPriceCents" defaultCents={line.unitPriceCents} required />
-        </Field>
-        <Field label="Rabatt (Zeile)">
-          <MoneyInput name="discountCents" defaultCents={line.discountCents} />
         </Field>
       </div>
       <Field label="Begründung" required className="mt-2">

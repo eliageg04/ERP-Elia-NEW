@@ -18,7 +18,7 @@ import { formatEur, toEurCents, weightedAverageCents } from "@/lib/money";
 import { formatDate, formatNumber } from "@/lib/format";
 import { label } from "@/lib/constants";
 import { PoUploadForm } from "./po-upload-form";
-import { PoTrackingForm, PoDeliveredButton } from "./po-card-actions";
+import { PoTrackingForm, PoDeliveredButton, PoPaidButton } from "./po-card-actions";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60; // KI-Analyse von PDF-Rechnungen braucht Zeit
@@ -79,28 +79,33 @@ export default async function PurchaseOrdersPage({
   );
 }
 
-// ---------- Vereinfachte Statusanzeige ----------
+// ---------- Vereinfachte Statusanzeige (Steps: Bestellt → Bezahlt → Versendet → Zugestellt) ----------
 
-function simpleStatus(status: string): { text: string; tone: "neutral" | "blue" | "amber" | "green" | "red" | "violet" } {
+function simpleStatus(
+  status: string,
+  paid: boolean
+): { text: string; tone: "neutral" | "blue" | "amber" | "green" | "red" | "violet"; edge: string } {
   switch (status) {
     case "DRAFT":
-      return { text: "In Erfassung", tone: "neutral" };
+      return { text: "In Erfassung", tone: "neutral", edge: "#8a8a92" };
     case "ORDERED":
     case "CONFIRMED":
-      return { text: "Bestellt", tone: "blue" };
+      return paid
+        ? { text: "Bezahlt", tone: "green", edge: "#3ecf6c" }
+        : { text: "Bestellt", tone: "blue", edge: "#8ab4f8" };
     case "PARTIALLY_SHIPPED":
-      return { text: "Teilweise versendet", tone: "amber" };
+      return { text: "Teilweise versendet", tone: "amber", edge: "#dcb888" };
     case "SHIPPED":
-      return { text: "Versendet", tone: "violet" };
+      return { text: "Versendet", tone: "violet", edge: "#ab9df2" };
     case "PARTIALLY_RECEIVED":
-      return { text: "Teilweise zugestellt", tone: "amber" };
+      return { text: "Teilweise zugestellt", tone: "amber", edge: "#dcb888" };
     case "RECEIVED":
     case "COMPLETED":
-      return { text: "Zugestellt", tone: "green" };
+      return { text: "Zugestellt ✓", tone: "green", edge: "#9fd19a" };
     case "CANCELLED":
-      return { text: "Storniert", tone: "red" };
+      return { text: "Storniert", tone: "red", edge: "#e29a92" };
     default:
-      return { text: label(status), tone: "neutral" };
+      return { text: label(status), tone: "neutral", edge: "#8a8a92" };
   }
 }
 
@@ -176,12 +181,22 @@ async function PoCardList({
           {pos.map((po) => {
             const totals = totalsByPo.get(po.id) ?? { ordered: 0, shipped: 0, arrived: 0 };
             const valueEur = po.lines.reduce((a, l) => a + toEurCents(l.lineTotalCents, po.fxRate), 0);
-            const st = simpleStatus(po.status);
+            const paid = Boolean(po.paidAt);
+            const st = simpleStatus(po.status, paid);
             const fullyShipped = totals.ordered > 0 && totals.shipped >= totals.ordered;
             const fullyArrived = totals.ordered > 0 && totals.arrived >= totals.ordered;
             const tracked = po.shipments.filter((s) => s.trackingNumber);
             return (
-              <details key={po.id} className="group rounded-xl border border-border bg-surface">
+              <details
+                key={po.id}
+                className={
+                  "group rounded-xl border border-border border-l-4 transition-opacity " +
+                  (fullyArrived
+                    ? "bg-[rgba(159,209,154,0.07)] opacity-75 hover:opacity-100"
+                    : "bg-surface")
+                }
+                style={{ borderLeftColor: st.edge }}
+              >
                 <summary className="cursor-pointer select-none px-4 py-3 hover:bg-canvas/60">
                   <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-2">
                     <div className="min-w-[180px]">
@@ -245,9 +260,15 @@ async function PoCardList({
                     </table>
                   </div>
 
-                  {/* Tracking & Zustellung */}
+                  {/* Steps: Bezahlt → Tracking/Versendet → Zugestellt */}
                   {!fullyArrived && po.lines.length > 0 && (
                     <div className="flex flex-col gap-3 rounded-lg bg-canvas/70 p-3">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <PoPaidButton poId={po.id} paid={paid} />
+                        {paid && po.paidAt && (
+                          <span className="text-xs text-ink-tertiary">bezahlt am {formatDate(po.paidAt)}</span>
+                        )}
+                      </div>
                       {tracked.length > 0 && (
                         <div className="flex flex-wrap items-center gap-2 text-sm">
                           <span className="text-xs font-medium uppercase tracking-wide text-ink-tertiary">

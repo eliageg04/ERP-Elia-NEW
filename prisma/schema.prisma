@@ -199,6 +199,7 @@ model PurchaseOrder {
   statusOverridden    Boolean   @default(false) // Status manuell gesetzt, obwohl Zahlen abweichen
   overrideReason      String?
   orderedAt           DateTime?
+  paidAt              DateTime? // Step "Bezahlt": Rechnung wurde wirklich bezahlt
   expectedAt          DateTime?
   currency            String    @default("EUR")
   fxRate              Float     @default(1.0) // EUR pro 1 Einheit Währung, eingefroren

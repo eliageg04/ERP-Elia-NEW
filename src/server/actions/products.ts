@@ -14,8 +14,13 @@ export async function createProductAction(_prev: ActionState, formData: FormData
     const user = await requireRole("STAFF");
     const name = str(formData, "name");
     if (!name) throw new AppError("Bitte einen Produktnamen angeben.");
-    const baseUnitId = str(formData, "baseUnitId");
-    if (!baseUnitId) throw new AppError("Bitte eine Basiseinheit wählen.");
+    // Basiseinheit optional: Standard ist „Stück“ (1 Case/Box = 1 Einheit)
+    let baseUnitId = optStr(formData, "baseUnitId");
+    if (!baseUnitId) {
+      const piece = await db.unit.findFirst({ where: { code: "PIECE" } });
+      if (!piece) throw new AppError("Systemeinheit „Stück“ fehlt – bitte Einstellungen → Einheiten prüfen.");
+      baseUnitId = piece.id;
+    }
 
     const skuInput = optStr(formData, "sku");
     const sku = skuInput ?? (await nextNumber("PRD"));

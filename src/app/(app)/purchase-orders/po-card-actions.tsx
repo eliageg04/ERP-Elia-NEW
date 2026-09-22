@@ -1,8 +1,23 @@
 "use client";
 
 import { ActionForm, ActionButton, Field, Input, Select, SubmitButton } from "@/components/form";
-import { addPoTrackingAction, markPoDeliveredAction } from "@/server/actions/purchase-orders";
+import { addPoTrackingAction, markPoDeliveredAction, markPoPaidAction } from "@/server/actions/purchase-orders";
 import { CARRIERS, label } from "@/lib/constants";
+
+/** Step 2: Rechnung wirklich bezahlt (Klick auf den Badge nimmt es zurück). */
+export function PoPaidButton({ poId, paid }: { poId: string; paid: boolean }) {
+  return (
+    <ActionButton
+      action={markPoPaidAction}
+      variant={paid ? "ghost" : "secondary"}
+      size="md"
+      hiddenFields={{ id: poId }}
+      confirmMessage={paid ? "Bezahlt-Markierung zurücknehmen?" : undefined}
+    >
+      {paid ? "✓ Bezahlt (zurücknehmen)" : "💶 Als bezahlt markieren"}
+    </ActionButton>
+  );
+}
 
 /** Tracking erfassen → alle offenen Mengen gelten als versendet. */
 export function PoTrackingForm({ poId }: { poId: string }) {

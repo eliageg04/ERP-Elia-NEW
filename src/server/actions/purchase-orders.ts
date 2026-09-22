@@ -621,6 +621,27 @@ export async function addPoCostAction(_prev: ActionState, formData: FormData): P
 
 // ---------- Schnell-Workflow: Tracking → versendet → zugestellt → Bestand ----------
 
+/** Step „Bezahlt“: Rechnung wurde wirklich bezahlt (erneut klicken = zurücknehmen). */
+export async function markPoPaidAction(_prev: ActionState, formData: FormData): Promise<ActionState> {
+  return runAction(async () => {
+    const user = await requireRole("STAFF");
+    const id = str(formData, "id");
+    const po = await db.purchaseOrder.findUniqueOrThrow({ where: { id } });
+    if (po.status === "CANCELLED") throw new AppError("Die Bestellung ist storniert.");
+    const paidAt = po.paidAt ? null : new Date();
+    await db.purchaseOrder.update({ where: { id }, data: { paidAt } });
+    await writeAudit({
+      userId: user.id,
+      entityType: "PURCHASE_ORDER",
+      entityId: id,
+      action: "STATUS_CHANGE",
+      changes: [{ field: "paidAt", old: po.paidAt?.toISOString() ?? null, new: paidAt?.toISOString() ?? null }],
+      comment: paidAt ? "Als bezahlt markiert" : "Bezahlt-Markierung zurückgenommen",
+    });
+  });
+}
+
+
 /**
  * Tracking hinzufügen: meldet alle noch offenen Mengen der Bestellung als
  * versendet (eine Sendung mit Trackingnummer). Entwürfe werden dabei

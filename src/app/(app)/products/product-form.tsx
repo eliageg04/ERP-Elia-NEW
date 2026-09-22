@@ -16,18 +16,11 @@ type ProductData = {
   listPriceCents?: number | null;
 };
 
-const PRODUCT_TYPES = [
-  "Booster Box",
-  "Booster Display",
-  "Elite Trainer Box",
-  "Booster Bundle",
-  "Tin",
-  "Collection Box",
-  "Einzelkarte",
-  "Zubehör",
-  "Sonstiges",
-];
-
+/**
+ * Produktformular – bewusst minimal: nur der Name ist Pflicht
+ * (z.B. "2025 Topps Bowman Draft Baseball Hobby Case").
+ * Alles Weitere ist optional und eingeklappt.
+ */
 export function ProductForm({
   action,
   units,
@@ -41,54 +34,43 @@ export function ProductForm({
   return (
     <ActionForm action={action} className="flex max-w-2xl flex-col gap-4">
       {product?.id && <input type="hidden" name="id" value={product.id} />}
-      <div className="grid gap-4 sm:grid-cols-2">
-        <Field label="Produktname" required className="sm:col-span-2">
-          <Input name="name" defaultValue={product?.name} required placeholder="z.B. Pokémon Scarlet & Violet 151 Booster Display" />
-        </Field>
-        <Field label="Produktart">
-          <Select name="productType" defaultValue={product?.productType ?? ""}>
-            <option value="">– wählen –</option>
-            {PRODUCT_TYPES.map((t) => (
-              <option key={t} value={t}>{t}</option>
-            ))}
-          </Select>
-        </Field>
-        <Field label="Set">
-          <Input name="setName" defaultValue={product?.setName ?? ""} placeholder="z.B. Scarlet & Violet 151" />
-        </Field>
-        <Field label="Sprache">
-          <Select name="language" defaultValue={product?.language ?? "EN"}>
-            {["EN", "DE", "JP", "FR", "IT", "ES", "KR", "CN"].map((l) => (
-              <option key={l} value={l}>{l}</option>
-            ))}
-          </Select>
-        </Field>
-        <Field label="Edition">
-          <Input name="edition" defaultValue={product?.edition ?? ""} placeholder="z.B. 1st Edition" />
-        </Field>
-        <Field label="EAN">
-          <Input name="ean" defaultValue={product?.ean ?? ""} inputMode="numeric" />
-        </Field>
-        <Field label="Hersteller">
-          <Input name="manufacturer" defaultValue={product?.manufacturer ?? ""} placeholder="z.B. The Pokémon Company" />
-        </Field>
-        <Field label="Interne SKU" hint={isEdit ? undefined : "Leer lassen für automatische Vergabe (PRD-XXXX)"}>
-          <Input name="sku" defaultValue={product?.sku ?? ""} />
-        </Field>
-        {!isEdit && (
-          <Field label="Basiseinheit" required hint="Kleinste Einheit, in der der Bestand geführt wird">
-            <Select name="baseUnitId" required defaultValue={product?.baseUnitId ?? ""}>
-              <option value="">– wählen –</option>
-              {units.map((u) => (
-                <option key={u.id} value={u.id}>{u.name}</option>
-              ))}
-            </Select>
+      <Field label="Produktname" required hint="Genau so, wie du es kennst – z.B. „2025 Topps Bowman Draft Baseball Hobby Case“">
+        <Input name="name" defaultValue={product?.name} required placeholder="z.B. 2025 Topps Bowman Draft Baseball Hobby Case" />
+      </Field>
+
+      <details>
+        <summary className="cursor-pointer text-sm font-medium text-ink-secondary hover:text-ink">
+          Erweiterte Angaben (optional)
+        </summary>
+        <div className="mt-3 grid gap-4 sm:grid-cols-2">
+          <Field label="Ziel-Verkaufspreis" hint="Wird im Verkaufs-Formular vorgeschlagen">
+            <MoneyInput name="listPriceCents" defaultCents={product?.listPriceCents} />
           </Field>
-        )}
-        <Field label="Ziel-Verkaufspreis (pro Basiseinheit)">
-          <MoneyInput name="listPriceCents" defaultCents={product?.listPriceCents} />
-        </Field>
-      </div>
+          <Field label="EAN">
+            <Input name="ean" defaultValue={product?.ean ?? ""} inputMode="numeric" />
+          </Field>
+          <Field label="Set">
+            <Input name="setName" defaultValue={product?.setName ?? ""} />
+          </Field>
+          <Field label="Sprache">
+            <Input name="language" defaultValue={product?.language ?? ""} placeholder="z.B. EN" />
+          </Field>
+          <Field label="Interne SKU" hint="Leer lassen für automatische Vergabe (PRD-XXXX)">
+            <Input name="sku" defaultValue={product?.sku ?? ""} />
+          </Field>
+          {!isEdit && (
+            <Field label="Basiseinheit" hint="Leer lassen = Stück (1 Case/Box = 1 Einheit)">
+              <Select name="baseUnitId" defaultValue={product?.baseUnitId ?? ""}>
+                <option value="">Standard (Stück)</option>
+                {units.map((u) => (
+                  <option key={u.id} value={u.id}>{u.name}</option>
+                ))}
+              </Select>
+            </Field>
+          )}
+        </div>
+      </details>
+
       <div>
         <SubmitButton>{isEdit ? "Änderungen speichern" : "Produkt anlegen"}</SubmitButton>
       </div>

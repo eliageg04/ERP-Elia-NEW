@@ -69,7 +69,9 @@ export default async function DashboardPage() {
 
       {/* Einkauf */}
       <section>
-        <h2 className="mb-2 text-sm font-semibold text-ink-secondary">Einkauf</h2>
+        <h2 className="mb-2 flex items-center gap-2 text-sm font-semibold text-ink-secondary">
+          <span className="inline-block h-2 w-2 rounded-full bg-[#8ab4f8]" /> Einkauf
+        </h2>
         <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
           <StatCard label="Offene Vorbestellungen" value={formatNumber(data.purchase.openPoCount)} href="/purchase-orders" />
           <StatCard label="Einheiten unterwegs" value={formatNumber(data.purchase.inTransitUnits)} hint="vom Großhändler versendet" href="/purchase-orders" />
@@ -79,7 +81,9 @@ export default async function DashboardPage() {
 
       {/* Lager */}
       <section>
-        <h2 className="mb-2 text-sm font-semibold text-ink-secondary">Lager</h2>
+        <h2 className="mb-2 flex items-center gap-2 text-sm font-semibold text-ink-secondary">
+          <span className="inline-block h-2 w-2 rounded-full bg-[#9fd19a]" /> Lager
+        </h2>
         <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
           <StatCard label="Lagerwert" value={formatEur(data.inventory.valueCents)} hint="zu Einstandskosten" href="/inventory" />
           <StatCard label="Gesamtbestand" value={formatNumber(data.inventory.totalOnHand)} href="/inventory" />
@@ -109,7 +113,9 @@ export default async function DashboardPage() {
 
       {/* Kunden */}
       <section>
-        <h2 className="mb-2 text-sm font-semibold text-ink-secondary">Kunden</h2>
+        <h2 className="mb-2 flex items-center gap-2 text-sm font-semibold text-ink-secondary">
+          <span className="inline-block h-2 w-2 rounded-full bg-[#ab9df2]" /> Kunden
+        </h2>
         <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
           <StatCard label="Offene Bestellungen" value={formatNumber(data.sales.openOrderCount)} href="/customer-orders" />
           <StatCard
