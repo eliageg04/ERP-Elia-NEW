@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { db } from "@/server/db";
 import { getStockMap, getInboundInTransitMap } from "@/server/services/inventory";
-import { getPoLineStats } from "@/server/services/purchasing";
+import { getPoLineStatsBulk } from "@/server/services/purchasing";
 import { getInventoryValue } from "@/server/services/stats";
 import { PageHeader, StatCard, Table, THead, Th, Td, Tr, LinkButton, EmptyState, Badge } from "@/components/ui";
 import { formatEur, toEurCents } from "@/lib/money";
@@ -22,6 +22,7 @@ async function IncomingOrders() {
     take: 30,
   });
   if (pos.length === 0) return null;
+  const statsMap = await getPoLineStatsBulk(pos.map((po) => po.id));
 
   const rows: Array<{
     id: string;
@@ -34,7 +35,7 @@ async function IncomingOrders() {
     products: string;
   }> = [];
   for (const po of pos) {
-    const stats = await getPoLineStats(po.id);
+    const stats = statsMap.get(po.id) ?? [];
     const openUnits = stats.reduce((a, s) => a + Math.max(0, s.ordered - s.arrived), 0);
     if (openUnits <= 0) continue;
     const unitValues = new Map(

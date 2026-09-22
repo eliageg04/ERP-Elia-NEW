@@ -13,8 +13,8 @@ function resolveDbUrl(): string | undefined {
   const extra: string[] = [];
   // PgBouncer-Modus (Neon-Pooler): Prepared Statements deaktivieren
   if (!url.includes("pgbouncer")) extra.push("pgbouncer=true");
-  // Serverless: eine Verbindung pro Funktion
-  if (!url.includes("connection_limit")) extra.push("connection_limit=1");
+  // Mehrere parallele Abfragen pro Funktion (Promise.all wird sonst serialisiert)
+  if (!url.includes("connection_limit")) extra.push("connection_limit=5");
   // Neon-Kaltstart kann einige Sekunden dauern
   if (!url.includes("connect_timeout")) extra.push("connect_timeout=15");
   if (extra.length === 0) return url;

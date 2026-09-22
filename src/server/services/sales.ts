@@ -20,11 +20,27 @@ export type CoLineStats = {
 };
 
 export async function getCoLineStats(customerOrderId: string, tx?: Tx): Promise<CoLineStats[]> {
+  const map = await getCoLineStatsBulk([customerOrderId], tx);
+  return map.get(customerOrderId) ?? [];
+}
+
+/**
+ * Wie getCoLineStats, aber für viele Bestellungen in EINER Abfrage –
+ * für Listen/Dashboard (verhindert N+1-Abfragen auf Neon).
+ */
+export async function getCoLineStatsBulk(
+  customerOrderIds: string[],
+  tx?: Tx
+): Promise<Map<string, CoLineStats[]>> {
+  const result = new Map<string, CoLineStats[]>();
+  for (const id of customerOrderIds) result.set(id, []);
+  if (customerOrderIds.length === 0) return result;
   const client = tx ?? db;
   const lines = await client.customerOrderLine.findMany({
-    where: { customerOrderId },
+    where: { customerOrderId: { in: customerOrderIds } },
     select: {
       id: true,
+      customerOrderId: true,
       productId: true,
       qty: true,
       allocations: { where: { status: "ACTIVE" }, select: { qty: true } },
@@ -35,7 +51,7 @@ export async function getCoLineStats(customerOrderId: string, tx?: Tx): Promise<
     },
     orderBy: { position: "asc" },
   });
-  return lines.map((l) => {
+  for (const l of lines) {
     const allocated = l.allocations.reduce((a, x) => a + x.qty, 0);
     const shipped = l.shipmentItems
       .filter((s) => s.shipment.status !== "PREPARED")
@@ -43,7 +59,7 @@ export async function getCoLineStats(customerOrderId: string, tx?: Tx): Promise<
     const delivered = l.shipmentItems
       .filter((s) => s.shipment.status === "DELIVERED")
       .reduce((a, s) => a + s.qty, 0);
-    return {
+    result.get(l.customerOrderId)!.push({
       lineId: l.id,
       productId: l.productId,
       qty: l.qty,
@@ -51,8 +67,9 @@ export async function getCoLineStats(customerOrderId: string, tx?: Tx): Promise<
       shipped,
       delivered,
       open: Math.max(0, l.qty - allocated - shipped),
-    };
-  });
+    });
+  }
+  return result;
 }
 
 export function deriveCoStatus(

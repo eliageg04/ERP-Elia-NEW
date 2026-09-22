@@ -25,11 +25,27 @@ export type PoLineStats = {
 
 /** Versand-/Eingangszahlen je Bestellzeile (Basis für Status & Anzeige). */
 export async function getPoLineStats(purchaseOrderId: string, tx?: Tx): Promise<PoLineStats[]> {
+  const map = await getPoLineStatsBulk([purchaseOrderId], tx);
+  return map.get(purchaseOrderId) ?? [];
+}
+
+/**
+ * Wie getPoLineStats, aber für viele Bestellungen in EINER Abfrage –
+ * für Listen/Dashboard (verhindert N+1-Abfragen auf Neon).
+ */
+export async function getPoLineStatsBulk(
+  purchaseOrderIds: string[],
+  tx?: Tx
+): Promise<Map<string, PoLineStats[]>> {
+  const result = new Map<string, PoLineStats[]>();
+  for (const id of purchaseOrderIds) result.set(id, []);
+  if (purchaseOrderIds.length === 0) return result;
   const client = tx ?? db;
   const lines = await client.purchaseOrderLine.findMany({
-    where: { purchaseOrderId },
+    where: { purchaseOrderId: { in: purchaseOrderIds } },
     select: {
       id: true,
+      purchaseOrderId: true,
       productId: true,
       qtyOrdered: true,
       shipmentItems: {
@@ -40,7 +56,7 @@ export async function getPoLineStats(purchaseOrderId: string, tx?: Tx): Promise<
     },
     orderBy: { position: "asc" },
   });
-  return lines.map((l) => {
+  for (const l of lines) {
     const shipped = l.shipmentItems
       .filter((s) => s.shipment.status !== "ANNOUNCED")
       .reduce((a, s) => a + s.qty, 0);
@@ -48,7 +64,7 @@ export async function getPoLineStats(purchaseOrderId: string, tx?: Tx): Promise<
     const damaged = l.receiptItems.reduce((a, r) => a + r.qtyDamaged, 0);
     const missing = l.receiptItems.reduce((a, r) => a + r.qtyMissing, 0);
     const arrived = arrivedOk + damaged;
-    return {
+    result.get(l.purchaseOrderId)!.push({
       poLineId: l.id,
       productId: l.productId,
       ordered: l.qtyOrdered,
@@ -59,8 +75,9 @@ export async function getPoLineStats(purchaseOrderId: string, tx?: Tx): Promise<
       arrived,
       open: Math.max(0, l.qtyOrdered - arrived),
       inTransit: Math.max(0, shipped - arrived),
-    };
-  });
+    });
+  }
+  return result;
 }
 
 /** Status aus den Zahlen ableiten (manuelle Overrides bleiben erhalten). */

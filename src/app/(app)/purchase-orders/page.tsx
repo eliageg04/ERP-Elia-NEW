@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { db } from "@/server/db";
-import { getPoLineStats } from "@/server/services/purchasing";
+import { getPoLineStatsBulk } from "@/server/services/purchasing";
 import {
   PageHeader,
   Table,
@@ -132,9 +132,11 @@ async function PoCardList({
     take: 100,
   });
 
+  // Zeilen-Statistiken für alle Bestellungen in EINER Abfrage
+  const statsMap = await getPoLineStatsBulk(pos.map((po) => po.id));
   const totalsByPo = new Map<string, { ordered: number; shipped: number; arrived: number }>();
   for (const po of pos) {
-    const stats = await getPoLineStats(po.id);
+    const stats = statsMap.get(po.id) ?? [];
     totalsByPo.set(po.id, {
       ordered: stats.reduce((a, s) => a + s.ordered, 0),
       shipped: stats.reduce((a, s) => a + s.shipped, 0),
