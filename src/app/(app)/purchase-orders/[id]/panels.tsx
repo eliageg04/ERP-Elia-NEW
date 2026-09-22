@@ -56,6 +56,7 @@ export function AddPoLineForm({
   void units;
   void currency;
   const [productId, setProductId] = useState("");
+  const [createNew, setCreateNew] = useState(false);
   const product = products.find((p) => p.id === productId);
 
   return (
@@ -66,18 +67,36 @@ export function AddPoLineForm({
         <input type="hidden" name="enteredUnitId" value={product?.baseUnitId ?? ""} />
         <input type="hidden" name="unitFactor" value="1" />
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-          <Field label="Produkt" required className="sm:col-span-2 lg:col-span-3">
-            <Select
-              name="productId"
-              required
-              value={productId}
-              onChange={(e) => setProductId(e.target.value)}
+          <Field label={createNew ? "Neues Produkt (Name)" : "Produkt"} required className="sm:col-span-2 lg:col-span-3">
+            {createNew ? (
+              <Input
+                name="newProductName"
+                required
+                placeholder="z.B. 2026 Topps Chrome Baseball Hobby Case"
+              />
+            ) : (
+              <Select
+                name="productId"
+                required
+                value={productId}
+                onChange={(e) => setProductId(e.target.value)}
+              >
+                <option value="">– wählen –</option>
+                {products.map((p) => (
+                  <option key={p.id} value={p.id}>{p.name}</option>
+                ))}
+              </Select>
+            )}
+            <button
+              type="button"
+              onClick={() => {
+                setCreateNew(!createNew);
+                setProductId("");
+              }}
+              className="mt-1 text-xs font-medium text-accent hover:underline"
             >
-              <option value="">– wählen –</option>
-              {products.map((p) => (
-                <option key={p.id} value={p.id}>{p.name}</option>
-              ))}
-            </Select>
+              {createNew ? "← bestehendes Produkt wählen" : "+ Neues Produkt direkt hier anlegen"}
+            </button>
           </Field>
           <Field label="Menge" required>
             <Input type="number" name="enteredQty" min={1} required placeholder="z.B. 3" />

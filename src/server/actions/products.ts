@@ -6,8 +6,52 @@ import { AppError } from "../errors";
 import { writeAudit, diffChanges } from "../audit";
 import { nextNumber } from "../numbering";
 import { postInbound, postOutbound, getStock } from "../services/inventory";
+import { findOrCreateProduct } from "../services/matching";
 import { runAction, str, optStr, num, optNum } from "./helpers";
 import type { ActionState } from "@/components/form";
+
+/**
+ * Anfangsbestand direkt erfassen (Bestand-Seite): Produkt wählen oder per
+ * Namen neu anlegen, Menge + EK – bucht eine Korrektur samt FIFO-Charge.
+ * Für die Alt-Datenerfassung ohne Bestellung ("liegt schon im Lager").
+ */
+export async function addOpeningStockAction(_prev: ActionState, formData: FormData): Promise<ActionState> {
+  return runAction(async () => {
+    const user = await requireRole("STAFF");
+    const productId = optStr(formData, "productId");
+    const newProductName = optStr(formData, "newProductName");
+    const qty = Math.round(num(formData, "qty"));
+    if (qty <= 0) throw new AppError("Bitte eine Menge größer 0 angeben.");
+    const unitCostCents = Math.round(num(formData, "unitCostCents"));
+    if (unitCostCents <= 0) {
+      throw new AppError("Bitte den Einkaufspreis je Einheit angeben – er bestimmt den Lagerwert.");
+    }
+    await db.$transaction(async (tx) => {
+      const product = productId
+        ? await tx.product.findUniqueOrThrow({ where: { id: productId } })
+        : await findOrCreateProduct(tx, { name: newProductName ?? "" });
+      await postInbound(tx, {
+        productId: product.id,
+        qty,
+        type: "CORRECTION",
+        unitCostEurCents: unitCostCents,
+        refType: "MANUAL",
+        note: "Anfangsbestand (manuell erfasst)",
+        userId: user.id,
+      });
+      await writeAudit(
+        {
+          userId: user.id,
+          entityType: "PRODUCT",
+          entityId: product.id,
+          action: "CORRECTION",
+          comment: `Anfangsbestand: ${qty} × ${product.name} zu ${(unitCostCents / 100).toFixed(2).replace(".", ",")} € eingebucht`,
+        },
+        tx
+      );
+    });
+  });
+}
 
 export async function createProductAction(_prev: ActionState, formData: FormData): Promise<ActionState> {
   return runAction(async () => {

@@ -129,17 +129,28 @@ export async function addPoLineAction(
       throw new AppError("Zu stornierten oder abgeschlossenen Bestellungen können keine Positionen hinzugefügt werden.");
     }
 
-    const productId = str(formData, "productId");
-    if (!productId) throw new AppError("Bitte ein Produkt wählen.");
-    const product = await db.product.findUniqueOrThrow({
-      where: { id: productId },
-      include: { conversions: true, baseUnit: true },
-    });
+    // Produkt wählen ODER per Namen direkt neu anlegen (Shortcut)
+    const productId = optStr(formData, "productId");
+    const newProductName = optStr(formData, "newProductName");
+    let product;
+    if (productId) {
+      product = await db.product.findUniqueOrThrow({
+        where: { id: productId },
+        include: { conversions: true, baseUnit: true },
+      });
+    } else if (newProductName) {
+      const created = await db.$transaction((tx) => findOrCreateProduct(tx, { name: newProductName }));
+      product = await db.product.findUniqueOrThrow({
+        where: { id: created.id },
+        include: { conversions: true, baseUnit: true },
+      });
+    } else {
+      throw new AppError("Bitte ein Produkt wählen oder einen neuen Produktnamen eingeben.");
+    }
 
     const enteredQty = Math.round(num(formData, "enteredQty"));
     if (enteredQty <= 0) throw new AppError("Die Menge muss größer als 0 sein.");
-    const enteredUnitId = str(formData, "enteredUnitId");
-    if (!enteredUnitId) throw new AppError("Bitte eine Einheit wählen.");
+    const enteredUnitId = optStr(formData, "enteredUnitId") ?? product.baseUnitId;
 
     // Umrechnungsfaktor: manuell überschreibbar, sonst automatisch
     const manualFactor = optNum(formData, "unitFactor");
@@ -177,7 +188,7 @@ export async function addPoLineAction(
     const line = await db.purchaseOrderLine.create({
       data: {
         purchaseOrderId,
-        productId,
+        productId: product.id,
         position: (maxPos._max.position ?? 0) + 1,
         enteredQty,
         enteredUnitId,

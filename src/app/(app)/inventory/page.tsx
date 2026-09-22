@@ -6,6 +6,7 @@ import { getInventoryValue } from "@/server/services/stats";
 import { PageHeader, StatCard, Table, THead, Th, Td, Tr, LinkButton, EmptyState, Badge } from "@/components/ui";
 import { formatEur, toEurCents } from "@/lib/money";
 import { formatDate, formatNumber } from "@/lib/format";
+import { OpeningStockForm } from "./opening-stock-form";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Bestand" };
@@ -176,6 +177,12 @@ export default async function InventoryPage({
         <StatCard label="Frei verfügbar" value={formatNumber(totalAvailable)} />
         <StatCard label="Unterwegs" value={formatNumber(totalInTransit)} hint="vom Lieferanten versendet" />
       </div>
+
+      <OpeningStockForm
+        products={products
+          .filter((p) => p.active)
+          .map((p) => ({ id: p.id, name: p.name }))}
+      />
 
       <IncomingOrders />
 
